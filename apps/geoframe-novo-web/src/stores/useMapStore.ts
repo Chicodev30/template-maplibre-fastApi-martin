@@ -1,0 +1,1 @@
+// Zustand: estado do mapa.

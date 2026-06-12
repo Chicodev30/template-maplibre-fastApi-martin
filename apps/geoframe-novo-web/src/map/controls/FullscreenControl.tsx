@@ -1,0 +1,1 @@
+// Controle tela cheia.

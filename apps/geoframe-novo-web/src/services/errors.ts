@@ -1,0 +1,1 @@
+// Tratamento padronizado de erros.

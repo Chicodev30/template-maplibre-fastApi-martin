@@ -1,0 +1,1 @@
+// Cálculos de medição.

@@ -1,0 +1,1 @@
+# Configuração de logs estruturados.

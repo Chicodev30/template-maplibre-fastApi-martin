@@ -1,0 +1,97 @@
+// Gestão de resources.
+// Galeria de recursos: casa o catalogo MVT do Martin com os metadados do banco.
+import { useMemo, useState } from 'react';
+import {
+  Alert,
+  Center,
+  Group,
+  Loader,
+  SimpleGrid,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
+import { env } from '../../app/env';
+import {
+  useCatalogResources,
+  useResourceMetadata,
+} from '../../catalog/api/resources.api';
+import { ResourceCard } from '../../catalog/components/ResourceCard';
+import { ResourceDetailDrawer } from '../../catalog/components/ResourceDetailDrawer';
+import type { CatalogResource } from '../../catalog/types/resource.types';
+
+export function ResourcesPage() {
+  const catalog = useCatalogResources();
+  const metadata = useResourceMetadata();
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<CatalogResource | null>(null);
+
+  const resources = useMemo(() => {
+    const list = catalog.data ?? [];
+    const q = search.trim().toLowerCase();
+    return q
+      ? list.filter(
+          (r) => r.title.toLowerCase().includes(q) || r.id.toLowerCase().includes(q),
+        )
+      : list;
+  }, [catalog.data, search]);
+
+  return (
+    <Stack gap="md">
+      <Group justify="space-between" align="flex-end">
+        <div>
+          <Title order={3}>Recursos</Title>
+          <Text c="dimmed" size="sm">
+            {catalog.data?.length ?? 0} camadas publicadas no Martin
+          </Text>
+        </div>
+        <TextInput
+          placeholder="Filtrar..."
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          w={240}
+        />
+      </Group>
+
+      {catalog.isError && (
+        <Alert color="red" title="Falha ao carregar o catálogo">
+          A API não respondeu (ou o Martin está fora). A API é o gateway dos tiles —
+          verifique se ela está no ar em{' '}
+          <Text span ff="monospace">
+            {env.apiBaseUrl}
+          </Text>
+          .
+        </Alert>
+      )}
+      {metadata.isError && (
+        <Alert color="yellow" title="Metadados do banco indisponíveis">
+          A galeria funciona, mas sem contagem de feições e tipos. Verifique a API FastAPI.
+        </Alert>
+      )}
+
+      {catalog.isLoading ? (
+        <Center h={300}>
+          <Loader />
+        </Center>
+      ) : (
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing="md">
+          {resources.map((r) => (
+            <ResourceCard
+              key={r.id}
+              resource={r}
+              metadata={metadata.data?.[r.id]}
+              onClick={() => setSelected(r)}
+            />
+          ))}
+        </SimpleGrid>
+      )}
+
+      <ResourceDetailDrawer
+        resource={selected}
+        metadata={selected ? metadata.data?.[selected.id] : undefined}
+        onClose={() => setSelected(null)}
+      />
+    </Stack>
+  );
+}

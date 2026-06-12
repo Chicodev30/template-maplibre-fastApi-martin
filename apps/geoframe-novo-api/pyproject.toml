@@ -1,0 +1,19 @@
+[project]
+name = "geoframe-api"
+version = "0.1.0"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "sqlalchemy",
+  "geoalchemy2",
+  "alembic",
+  "pydantic-settings",
+  "psycopg[binary]",
+  "python-jose[cryptography]",
+  "httpx",
+  "loguru",
+  "sqladmin"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

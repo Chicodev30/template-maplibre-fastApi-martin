@@ -1,0 +1,97 @@
+// Thumbnail ao vivo: mini-mapa MapLibre com a camada MVT sobre OSM.
+// Inicializa apenas quando o card entra na viewport, para nao estourar o
+// limite de contextos WebGL do navegador (~16) quando ha muitas tabelas.
+import { useEffect, useRef, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import { Box, Center, Loader, Text } from '@mantine/core';
+import { env } from '../../app/env';
+import { createOsmStyle } from '../../map/maplibre/createMapStyle';
+import { useTileJson } from '../api/resources.api';
+
+export function ResourceThumbnail({ sourceId, height = 150 }: { sourceId: string; height?: number }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const [visible, setVisible] = useState(false);
+  const { data: tj, isLoading, isError } = useTileJson(visible ? sourceId : '');
+
+  // Detecta entrada na viewport.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          obs.disconnect();
+        }
+      },
+      { rootMargin: '100px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  // Cria o mapa e adiciona a camada vetorial quando o TileJSON chega.
+  useEffect(() => {
+    if (!visible || !tj || !containerRef.current || mapRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: createOsmStyle(),
+      interactive: false,
+      attributionControl: false,
+      bounds: tj.bounds,
+      fitBoundsOptions: { padding: 12, maxZoom: 14 },
+    });
+
+    map.on('load', () => {
+      map.addSource('resource', {
+        type: 'vector',
+        tiles: [`${env.apiBaseUrl}/tiles/${sourceId}/{z}/{x}/{y}`],
+      });
+      const common = { source: 'resource', 'source-layer': sourceId } as const;
+      // Cobre qualquer geometria: poligono, linha e ponto.
+      map.addLayer({
+        ...common,
+        id: 'resource-fill',
+        type: 'fill',
+        paint: { 'fill-color': '#1971c2', 'fill-opacity': 0.35 },
+      });
+      map.addLayer({
+        ...common,
+        id: 'resource-line',
+        type: 'line',
+        paint: { 'line-color': '#1971c2', 'line-width': 1 },
+      });
+      map.addLayer({
+        ...common,
+        id: 'resource-circle',
+        type: 'circle',
+        paint: { 'circle-color': '#1971c2', 'circle-radius': 2.5 },
+      });
+    });
+
+    mapRef.current = map;
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [visible, tj, sourceId]);
+
+  return (
+    <Box ref={containerRef} pos="relative" h={height} bg="gray.1" style={{ overflow: 'hidden' }}>
+      {visible && isLoading && (
+        <Center h="100%">
+          <Loader size="sm" />
+        </Center>
+      )}
+      {isError && (
+        <Center h="100%">
+          <Text size="xs" c="dimmed">
+            sem preview
+          </Text>
+        </Center>
+      )}
+    </Box>
+  );
+}
