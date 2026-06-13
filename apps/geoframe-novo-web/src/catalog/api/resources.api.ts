@@ -1,10 +1,12 @@
 // API de resources.
 // Tudo passa pela API FastAPI (gateway do Martin); o front nunca fala direto
 // com o Martin.
-import { useQuery } from '@tanstack/react-query';
-import { apiGet } from '../../app/http';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiGet, apiPut } from '../../app/http';
 import type {
   CatalogResource,
+  ResourceAttributes,
+  ResourceConfig,
   MartinCatalog,
   ResourceColumn,
   ResourceMetadata,
@@ -60,11 +62,84 @@ export function useTileJson(sourceId: string) {
   });
 }
 
-// Colunas autoritativas do banco (nome, tipo, nullable) para o drawer.
+// Colunas autoritativas do banco (nome, tipo, nullable) para a configuracao.
 export function useResourceColumns(tableName: string | null) {
   return useQuery({
     queryKey: ['resources', 'columns', tableName],
     enabled: !!tableName,
     queryFn: () => apiGet<ResourceColumn[]>(`/catalog/resources/${tableName}/columns`),
+  });
+}
+
+export function useResourceConfig(sourceId: string | null) {
+  return useQuery({
+    queryKey: ['resources', 'config', sourceId],
+    enabled: !!sourceId,
+    retry: false,
+    queryFn: () =>
+      apiGet<ResourceConfig>(`/catalog/resources/${encodeURIComponent(sourceId ?? '')}/config`),
+  });
+}
+
+export function useSaveResourceConfig(sourceId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (config: ResourceConfig) =>
+      apiPut<ResourceConfig>(
+        `/catalog/resources/${encodeURIComponent(sourceId)}/config`,
+        config,
+      ),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(['resources', 'config', sourceId], saved);
+    },
+  });
+}
+
+export function useResourceAttributes(
+  sourceId: string | null,
+  opened: boolean,
+  limit: number,
+  offset: number,
+  filterColumn: string | null,
+  filterOperator: string,
+  filterValue: string,
+  sortColumn: string | null,
+  sortDirection: 'asc' | 'desc',
+) {
+  return useQuery({
+    queryKey: [
+      'resources',
+      'attributes',
+      sourceId,
+      limit,
+      offset,
+      filterColumn,
+      filterOperator,
+      filterValue,
+      sortColumn,
+      sortDirection,
+    ],
+    enabled: !!sourceId && opened,
+    queryFn: () => {
+      const params = new URLSearchParams({
+        limit: String(limit),
+        offset: String(offset),
+        sort_direction: sortDirection,
+      });
+      if (filterColumn) {
+        params.set('filter_column', filterColumn);
+        params.set('filter_operator', filterOperator);
+        if (filterValue.trim()) {
+          params.set('filter_value', filterValue.trim());
+        }
+      }
+      if (sortColumn) {
+        params.set('sort_column', sortColumn);
+      }
+      return apiGet<ResourceAttributes>(
+        `/catalog/resources/${encodeURIComponent(sourceId ?? '')}/attributes?${params.toString()}`,
+      );
+    },
+    placeholderData: (previous) => previous,
   });
 }

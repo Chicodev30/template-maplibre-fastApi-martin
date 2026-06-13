@@ -1,11 +1,13 @@
-// Proteção de rotas autenticadas.
+// Protecao de rotas autenticadas.
 import type { ReactNode } from 'react';
 import { Center, Loader } from '@mantine/core';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './useAuth';
 import { AccessDenied } from './AccessDenied';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { isLoading, isDenied, role } = useAuth();
+  const location = useLocation();
+  const { isLoading, isDenied, role, isAuthenticated } = useAuth();
 
   if (isLoading) {
     return (
@@ -15,7 +17,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  // Sem nenhum dos 3 papeis padrao -> acesso negado.
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
   if (isDenied || !role) {
     return <AccessDenied />;
   }

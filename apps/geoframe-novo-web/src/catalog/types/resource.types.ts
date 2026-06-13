@@ -1,11 +1,11 @@
 // Tipos de resource.
 
-// Catalogo do Martin: GET {tileBaseUrl}/catalog
+// Catalogo do Martin via API: GET /api/tiles/catalog
 export interface MartinCatalog {
   tiles: Record<string, { content_type: string; description: string }>;
 }
 
-// TileJSON de uma fonte: GET {tileBaseUrl}/{sourceId}
+// TileJSON de uma fonte via API: GET /api/tiles/{sourceId}
 export interface TileJson {
   tilejson: string;
   tiles: string[];
@@ -33,6 +33,35 @@ export interface ResourceColumn {
   name: string;
   data_type: string;
   nullable: boolean;
+}
+
+export interface ResourceFieldConfig {
+  label: string;
+  searchable: boolean;
+  showInTable: boolean;
+  showInPopup: boolean;
+}
+
+export interface ResourceSecurityRule {
+  id: string;
+  type: 'hide_fields';
+  fieldNames: string[];
+  principals: string[];
+}
+
+export interface ResourceConfig {
+  resourceId: string;
+  layerLabel: string;
+  fields: Record<string, ResourceFieldConfig>;
+  securityRules: ResourceSecurityRule[];
+}
+
+export interface ResourceAttributes {
+  resourceId: string;
+  limit: number;
+  offset: number;
+  rows: Array<Record<string, unknown> & { __bbox?: [number, number, number, number] | null }>;
+  columns: string[];
 }
 
 // Item da galeria: casamento do catalogo Martin com os metadados do banco.

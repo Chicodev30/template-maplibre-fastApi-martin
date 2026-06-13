@@ -6,7 +6,10 @@ import type { AuthUser } from '../../auth/auth.types';
 export function useUsers() {
   return useQuery({
     queryKey: ['users'],
-    queryFn: () => apiGet<AuthUser[]>('/users'),
+    queryFn: async () => {
+      const users = await apiGet<AuthUser[]>('/users');
+      return users.filter((u) => !(u.keycloak_sub ?? '').startsWith('dev-'));
+    },
   });
 }
 

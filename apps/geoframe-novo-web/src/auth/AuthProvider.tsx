@@ -1,44 +1,65 @@
-// Provider de autenticação.
-// Modo dev (bypass): o papel vem de um seletor e e enviado no header X-Dev-Role.
-// Quando o Keycloak entrar, troca-se a fonte do token sem mexer no resto.
+// Provider de autenticacao Keycloak.
 import { createContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ApiError, apiGet, setApiAuthHeaders } from '../app/http';
-import { env } from '../app/env';
 import type { AppRole, AuthUser } from './auth.types';
+import { getValidKeycloakToken, initKeycloak, keycloak } from './keycloak';
 
 interface AuthContextValue {
   user: AuthUser | null;
   role: AppRole | null;
   isLoading: boolean;
   isDenied: boolean;
-  devBypass: boolean;
-  devRole: string;
-  setDevRole: (role: string) => void;
+  isAuthenticated: boolean;
+  login: (redirectUri?: string) => void;
+  logout: () => void;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
-const DEV_ROLE_KEY = 'gfr.devRole';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [devRole, setDevRole] = useState(
-    () => localStorage.getItem(DEV_ROLE_KEY) ?? 'gfr-admin',
-  );
+  const [kcReady, setKcReady] = useState(false);
+  const [kcAuthenticated, setKcAuthenticated] = useState(false);
 
-  // Mantem o header de auth em sincronia com o papel escolhido em dev.
   useEffect(() => {
-    if (env.authDevBypass) {
-      setApiAuthHeaders({ 'X-Dev-Role': devRole });
-      localStorage.setItem(DEV_ROLE_KEY, devRole);
-    }
-  }, [devRole]);
+    let mounted = true;
+    initKeycloak()
+      .then(async (authenticated) => {
+        if (!mounted) return;
+        setKcAuthenticated(authenticated);
+        if (!authenticated) {
+          setApiAuthHeaders({});
+          return;
+        }
+
+        try {
+          const token = await getValidKeycloakToken();
+          setApiAuthHeaders(token ? { Authorization: `Bearer ${token}` } : {});
+        } catch {
+          setApiAuthHeaders({});
+          setKcAuthenticated(false);
+        }
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setApiAuthHeaders({});
+        setKcAuthenticated(false);
+      })
+      .finally(() => {
+        if (mounted) setKcReady(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const query = useQuery<AuthUser, ApiError>({
-    queryKey: ['auth', 'me', env.authDevBypass ? devRole : 'kc'],
+    queryKey: ['auth', 'me', keycloak.token],
     queryFn: () => apiGet<AuthUser>('/auth/me'),
+    enabled: kcReady && kcAuthenticated,
     retry: false,
   });
 
@@ -46,13 +67,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       user: query.data ?? null,
       role: query.data?.effective_role ?? null,
-      isLoading: query.isLoading,
+      isLoading: !kcReady || query.isLoading,
       isDenied: query.error?.status === 403,
-      devBypass: env.authDevBypass,
-      devRole,
-      setDevRole,
+      isAuthenticated: kcAuthenticated,
+      login: (redirectUri) => {
+        keycloak.login({
+          redirectUri: redirectUri ?? `${window.location.origin}/map`,
+        });
+      },
+      logout: () => {
+        keycloak.logout({ redirectUri: `${window.location.origin}/login` });
+      },
     }),
-    [query.data, query.isLoading, query.error, devRole],
+    [query.data, query.isLoading, query.error, kcReady, kcAuthenticated],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -3,7 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,32 +29,23 @@ class Identity:
 
 def get_identity(
     request: Request,
-    x_dev_role: str | None = Header(default=None),
 ) -> Identity:
-    if settings.auth_dev_bypass:
-        # Modo dev: papel(eis) vem do header X-Dev-Role (CSV) ou do default.
-        raw = x_dev_role if x_dev_role is not None else settings.auth_dev_role
-        kc_roles = [r.strip() for r in raw.split(",") if r.strip()]
-        key = "-".join(sorted(kc_roles)) or "norole"
-        return Identity(
-            sub=f"dev-{key}",
-            username=f"dev-{key}",
-            email=f"{key}@local.dev",
-            full_name=f"Dev ({key})",
-            kc_roles=kc_roles,
-        )
-
-    # Modo real: access token do Keycloak no header Authorization.
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Token ausente")
     claims = decode_token(auth[len("Bearer ") :])
+    client_roles = (
+        claims.get("resource_access", {})
+        .get(settings.keycloak_client_id, {})
+        .get("roles", [])
+    )
+    realm_roles = claims.get("realm_access", {}).get("roles", [])
     return Identity(
         sub=claims["sub"],
         username=claims.get("preferred_username", claims["sub"]),
         email=claims.get("email"),
         full_name=claims.get("name"),
-        kc_roles=claims.get("realm_access", {}).get("roles", []),
+        kc_roles=list({*realm_roles, *client_roles}),
     )
 
 

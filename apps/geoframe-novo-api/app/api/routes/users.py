@@ -17,7 +17,13 @@ def list_users(
     _admin: User = Depends(require_role(AppRole.admin)),
     db: Session = Depends(get_session),
 ) -> list[User]:
-    return list(db.execute(select(User).order_by(User.created_at)).scalars().all())
+    stmt = (
+        select(User)
+        .where(User.keycloak_sub.is_not(None))
+        .where(~User.keycloak_sub.startswith("dev-"))
+        .order_by(User.created_at)
+    )
+    return list(db.execute(stmt).scalars().all())
 
 
 @router.get("/{user_id}", response_model=UserOut)
@@ -27,6 +33,6 @@ def get_user(
     db: Session = Depends(get_session),
 ) -> User:
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or (user.keycloak_sub or "").startswith("dev-"):
         raise HTTPException(status_code=404, detail="Usuario nao encontrado")
     return user

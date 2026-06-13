@@ -1,16 +1,15 @@
 // Layout do portal admin.
-import { AppShell, Group, Title, Anchor, Burger, Badge, Text } from '@mantine/core';
+import { AppShell, Group, Title, Anchor, Burger, Badge, Text, Button } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Link, Outlet } from 'react-router-dom';
 import { env } from '../../app/env';
 import { useAuth } from '../../auth/useAuth';
 import { ROLE_LABEL } from '../../auth/auth.types';
-import { DevRoleSwitcher } from '../../auth/DevRoleSwitcher';
 import { AdminSidebar } from './AdminSidebar';
 
 export function AdminLayout() {
   const [opened, { toggle }] = useDisclosure();
-  const { user, role } = useAuth();
+  const { user, role, logout } = useAuth();
 
   return (
     <AppShell
@@ -28,7 +27,6 @@ export function AdminLayout() {
             </Title>
           </Group>
           <Group gap="md">
-            <DevRoleSwitcher />
             {user && role && (
               <Group gap={6}>
                 <Text size="sm" visibleFrom="sm">
@@ -37,9 +35,12 @@ export function AdminLayout() {
                 <Badge variant="light">{ROLE_LABEL[role]}</Badge>
               </Group>
             )}
-            <Anchor component={Link} to="/" size="sm">
-              ← Mapa
+            <Anchor component={Link} to="/map" size="sm">
+              Mapa
             </Anchor>
+            <Button size="xs" variant="subtle" onClick={logout}>
+              Sair
+            </Button>
           </Group>
         </Group>
       </AppShell.Header>

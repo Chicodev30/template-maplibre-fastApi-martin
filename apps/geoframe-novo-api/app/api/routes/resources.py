@@ -4,12 +4,16 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import text
+from pydantic import BaseModel, Field
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_session
+from app.dependencies import require_role
+from app.models.resource import ResourceConfig
+from app.models.role import AppRole
+from app.models.user import User
 
 router = APIRouter(prefix="/catalog/resources", tags=["resources"])
 
@@ -31,6 +35,38 @@ class ResourceMetadata(BaseModel):
     srid: int | None = None
     # reltuples e uma estimativa do planner; -1 vira None (tabela nunca analisada).
     feature_count: int | None = None
+
+
+class ResourceFieldConfig(BaseModel):
+    label: str
+    searchable: bool = False
+    showInTable: bool = True
+    showInPopup: bool = True
+
+
+class ResourceSecurityRule(BaseModel):
+    id: str
+    type: str = "hide_fields"
+    fieldNames: list[str] = Field(default_factory=list)
+    principals: list[str] = Field(default_factory=list)
+
+
+class ResourceConfigIn(BaseModel):
+    layerLabel: str
+    fields: dict[str, ResourceFieldConfig]
+    securityRules: list[ResourceSecurityRule] = Field(default_factory=list)
+
+
+class ResourceConfigOut(ResourceConfigIn):
+    resourceId: str
+
+
+class ResourceAttributes(BaseModel):
+    resourceId: str
+    limit: int
+    offset: int
+    rows: list[dict[str, Any]]
+    columns: list[str]
 
 
 # Estimativa instantanea de contagem + tipo/SRID da geometria, em uma query.
@@ -57,6 +93,14 @@ _COLUMNS_SQL = text(
     FROM information_schema.columns
     WHERE table_schema = :schema AND table_name = :table
     ORDER BY ordinal_position
+    """
+)
+
+_GEOM_COLUMN_SQL = text(
+    """
+    SELECT f_geometry_column
+    FROM geometry_columns
+    WHERE f_table_schema = :schema AND f_table_name = :table
     """
 )
 
@@ -93,6 +137,211 @@ def list_resource_columns(
         ResourceColumn(name=r["column_name"], data_type=r["data_type"], nullable=r["nullable"])
         for r in rows
     ]
+
+
+def _ensure_resource_exists(source_id: str, db: Session) -> tuple[str, str]:
+    if "." not in source_id:
+        raise HTTPException(status_code=404, detail="Recurso nao encontrado")
+    schema_name, table_name = source_id.split(".", 1)
+    if schema_name != settings.db_schema:
+        raise HTTPException(status_code=404, detail="Recurso nao encontrado")
+    valid = db.execute(
+        text(
+            "SELECT 1 FROM geometry_columns "
+            "WHERE f_table_schema = :schema AND f_table_name = :table"
+        ),
+        {"schema": schema_name, "table": table_name},
+    ).first()
+    if not valid:
+        raise HTTPException(status_code=404, detail="Recurso nao encontrado")
+    return schema_name, table_name
+
+
+def _serialize_value(value: Any) -> Any:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _build_attribute_filter(
+    column_types: dict[str, str],
+    filter_column: str | None,
+    filter_operator: str,
+    filter_value: str | None,
+    params: dict[str, Any],
+) -> str:
+    if not filter_column or filter_column not in column_types:
+        return ""
+
+    operator = filter_operator.lower()
+    data_type = column_types[filter_column]
+    quoted_column = f'"{filter_column}"'
+
+    if operator == "is_null":
+        return f"WHERE {quoted_column} IS NULL "
+    if operator == "is_not_null":
+        return f"WHERE {quoted_column} IS NOT NULL "
+    if not filter_value:
+        return ""
+
+    text_column = f"CAST({quoted_column} AS TEXT)"
+    if operator == "contains":
+        params["filter_value"] = f"%{filter_value}%"
+        return f"WHERE {text_column} ILIKE :filter_value "
+    if operator == "starts_with":
+        params["filter_value"] = f"{filter_value}%"
+        return f"WHERE {text_column} ILIKE :filter_value "
+    if operator == "ends_with":
+        params["filter_value"] = f"%{filter_value}"
+        return f"WHERE {text_column} ILIKE :filter_value "
+    if operator == "equals":
+        params["filter_value"] = filter_value
+        return f"WHERE {quoted_column} = CAST(:filter_value AS {data_type}) "
+    if operator in {"gt", "gte", "lt", "lte"}:
+        sql_operator = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[operator]
+        params["filter_value"] = filter_value
+        return f"WHERE {quoted_column} {sql_operator} CAST(:filter_value AS {data_type}) "
+
+    params["filter_value"] = f"%{filter_value}%"
+    return f"WHERE {text_column} ILIKE :filter_value "
+
+
+@router.get("/{source_id}/config", response_model=ResourceConfigOut)
+def get_resource_config(
+    source_id: str,
+    db: Session = Depends(get_session),
+) -> ResourceConfigOut:
+    schema_name, table_name = _ensure_resource_exists(source_id, db)
+    config = db.execute(
+        select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
+    ).scalar_one_or_none()
+    if config is None:
+        geom_column = db.execute(
+            _GEOM_COLUMN_SQL,
+            {"schema": schema_name, "table": table_name},
+        ).scalar_one_or_none()
+        return ResourceConfigOut(
+            resourceId=source_id,
+            layerLabel=f"{table_name}.{geom_column or 'geom'}",
+            fields={},
+            securityRules=[],
+        )
+    return ResourceConfigOut(
+        resourceId=config.resource_id,
+        layerLabel=config.layer_label,
+        fields=config.fields,
+        securityRules=config.security_rules,
+    )
+
+
+@router.put("/{source_id}/config", response_model=ResourceConfigOut)
+def save_resource_config(
+    source_id: str,
+    payload: ResourceConfigIn,
+    _admin: User = Depends(require_role(AppRole.admin)),
+    db: Session = Depends(get_session),
+) -> ResourceConfigOut:
+    _ensure_resource_exists(source_id, db)
+    config = db.execute(
+        select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
+    ).scalar_one_or_none()
+    if config is None:
+        config = ResourceConfig(resource_id=source_id)
+        db.add(config)
+    config.layer_label = payload.layerLabel
+    config.fields = {name: field.model_dump() for name, field in payload.fields.items()}
+    config.security_rules = [rule.model_dump() for rule in payload.securityRules]
+    db.commit()
+    db.refresh(config)
+    return ResourceConfigOut(
+        resourceId=config.resource_id,
+        layerLabel=config.layer_label,
+        fields=config.fields,
+        securityRules=config.security_rules,
+    )
+
+
+@router.get("/{source_id}/attributes", response_model=ResourceAttributes)
+def get_resource_attributes(
+    source_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    filter_column: str | None = None,
+    filter_operator: str = "contains",
+    filter_value: str | None = None,
+    sort_column: str | None = None,
+    sort_direction: str = "asc",
+    db: Session = Depends(get_session),
+) -> ResourceAttributes:
+    schema_name, table_name = _ensure_resource_exists(source_id, db)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    geom_column = db.execute(
+        _GEOM_COLUMN_SQL,
+        {"schema": schema_name, "table": table_name},
+    ).scalar_one_or_none()
+    column_rows = (
+        db.execute(_COLUMNS_SQL, {"schema": schema_name, "table": table_name})
+        .mappings()
+        .all()
+    )
+    columns = [r["column_name"] for r in column_rows if r["column_name"] != geom_column]
+    column_types = {
+        r["column_name"]: r["data_type"]
+        for r in column_rows
+        if r["column_name"] != geom_column
+    }
+    if not columns:
+        return ResourceAttributes(
+            resourceId=source_id,
+            limit=limit,
+            offset=offset,
+            rows=[],
+            columns=[],
+        )
+
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    where_clause = _build_attribute_filter(
+        column_types,
+        filter_column,
+        filter_operator,
+        filter_value,
+        params,
+    )
+
+    order_clause = ""
+    if sort_column and sort_column in columns:
+        direction = "DESC" if sort_direction.lower() == "desc" else "ASC"
+        order_clause = f'ORDER BY "{sort_column}" {direction} '
+
+    quoted_columns = ", ".join(f'"{c}"' for c in columns)
+    bbox_column = ""
+    if geom_column:
+        bbox_column = (
+            f', CASE WHEN "{geom_column}" IS NULL THEN NULL ELSE ARRAY['
+            f'ST_XMin(Box2D(ST_Transform("{geom_column}", 4326))), '
+            f'ST_YMin(Box2D(ST_Transform("{geom_column}", 4326))), '
+            f'ST_XMax(Box2D(ST_Transform("{geom_column}", 4326))), '
+            f'ST_YMax(Box2D(ST_Transform("{geom_column}", 4326)))'
+            f'] END AS "__bbox"'
+        )
+    sql = text(
+        f'SELECT {quoted_columns}{bbox_column} FROM "{schema_name}"."{table_name}" '
+        f"{where_clause}{order_clause}"
+        "LIMIT :limit OFFSET :offset"
+    )
+    rows = db.execute(sql, params).mappings().all()
+    return ResourceAttributes(
+        resourceId=source_id,
+        limit=limit,
+        offset=offset,
+        rows=[
+            {key: _serialize_value(value) for key, value in row.items()}
+            for row in rows
+        ],
+        columns=columns,
+    )
 
 
 @router.get("/{table_name}/count")

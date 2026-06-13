@@ -1,4 +1,4 @@
-// Gestão de resources.
+// Gestao de resources.
 // Galeria de recursos: casa o catalogo MVT do Martin com os metadados do banco.
 import { useMemo, useState } from 'react';
 import {
@@ -12,20 +12,19 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
+import { useNavigate } from 'react-router-dom';
 import { env } from '../../app/env';
 import {
   useCatalogResources,
   useResourceMetadata,
 } from '../../catalog/api/resources.api';
 import { ResourceCard } from '../../catalog/components/ResourceCard';
-import { ResourceDetailDrawer } from '../../catalog/components/ResourceDetailDrawer';
-import type { CatalogResource } from '../../catalog/types/resource.types';
 
 export function ResourcesPage() {
   const catalog = useCatalogResources();
   const metadata = useResourceMetadata();
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<CatalogResource | null>(null);
+  const navigate = useNavigate();
 
   const resources = useMemo(() => {
     const list = catalog.data ?? [];
@@ -55,9 +54,9 @@ export function ResourcesPage() {
       </Group>
 
       {catalog.isError && (
-        <Alert color="red" title="Falha ao carregar o catálogo">
-          A API não respondeu (ou o Martin está fora). A API é o gateway dos tiles —
-          verifique se ela está no ar em{' '}
+        <Alert color="red" title="Falha ao carregar o catalogo">
+          A API nao respondeu (ou o Martin esta fora). A API e o gateway dos tiles.
+          Verifique se ela esta no ar em{' '}
           <Text span ff="monospace">
             {env.apiBaseUrl}
           </Text>
@@ -65,8 +64,8 @@ export function ResourcesPage() {
         </Alert>
       )}
       {metadata.isError && (
-        <Alert color="yellow" title="Metadados do banco indisponíveis">
-          A galeria funciona, mas sem contagem de feições e tipos. Verifique a API FastAPI.
+        <Alert color="yellow" title="Metadados do banco indisponiveis">
+          A galeria funciona, mas sem contagem de feicoes e tipos. Verifique a API FastAPI.
         </Alert>
       )}
 
@@ -81,17 +80,13 @@ export function ResourcesPage() {
               key={r.id}
               resource={r}
               metadata={metadata.data?.[r.id]}
-              onClick={() => setSelected(r)}
+              onClick={() =>
+                navigate(`/admin/catalog/resources/${encodeURIComponent(r.id)}`)
+              }
             />
           ))}
         </SimpleGrid>
       )}
-
-      <ResourceDetailDrawer
-        resource={selected}
-        metadata={selected ? metadata.data?.[selected.id] : undefined}
-        onClose={() => setSelected(null)}
-      />
     </Stack>
   );
 }
