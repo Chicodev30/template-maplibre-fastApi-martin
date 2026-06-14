@@ -16,6 +16,8 @@ class ResourceConfig(Base):
     layer_label: Mapped[str] = mapped_column(String(255))
     fields: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     security_rules: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    bbox_override: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
+    excluded_features: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

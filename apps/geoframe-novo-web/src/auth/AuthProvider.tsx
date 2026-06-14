@@ -25,6 +25,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let refreshInterval: ReturnType<typeof setInterval> | undefined;
+
+    const refreshAuthHeaders = async () => {
+      try {
+        const token = await getValidKeycloakToken();
+        setApiAuthHeaders(token ? { Authorization: `Bearer ${token}` } : {});
+      } catch {
+        setApiAuthHeaders({});
+        if (mounted) setKcAuthenticated(false);
+      }
+    };
+
     initKeycloak()
       .then(async (authenticated) => {
         if (!mounted) return;
@@ -34,13 +46,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        try {
-          const token = await getValidKeycloakToken();
-          setApiAuthHeaders(token ? { Authorization: `Bearer ${token}` } : {});
-        } catch {
-          setApiAuthHeaders({});
-          setKcAuthenticated(false);
-        }
+        await refreshAuthHeaders();
+        if (!mounted) return;
+
+        // O access token do Keycloak expira em poucos minutos. Sem isso, o
+        // header Authorization usado em todas as chamadas a API/tiles fica
+        // com um token vencido e tudo passa a responder 401/500 ate o
+        // usuario recarregar a pagina.
+        refreshInterval = setInterval(refreshAuthHeaders, 20_000);
       })
       .catch(() => {
         if (!mounted) return;
@@ -53,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      if (refreshInterval) clearInterval(refreshInterval);
     };
   }, []);
 
@@ -72,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: kcAuthenticated,
       login: (redirectUri) => {
         keycloak.login({
-          redirectUri: redirectUri ?? `${window.location.origin}/map`,
+          redirectUri: redirectUri ?? `${window.location.origin}/`,
         });
       },
       logout: () => {

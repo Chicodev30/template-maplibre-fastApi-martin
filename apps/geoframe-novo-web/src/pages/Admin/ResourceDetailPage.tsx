@@ -1,6 +1,7 @@
 // Detalhe/configuracao de um recurso do catalogo.
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import type maplibregl from 'maplibre-gl';
 import {
   ActionIcon,
   Anchor,
@@ -39,6 +40,7 @@ import {
 } from '../../catalog/components/ResourceThumbnail';
 import type {
   CatalogResource,
+  ExcludedFeature,
   ResourceColumn,
   ResourceConfig,
   ResourceFieldConfig,
@@ -165,6 +167,8 @@ function buildConfig(
     layerLabel: previous?.layerLabel ?? resource.title,
     fields,
     securityRules: previous?.securityRules ?? [],
+    bboxOverride: previous?.bboxOverride ?? null,
+    excludedFeatures: previous?.excludedFeatures ?? [],
   };
 }
 
@@ -304,6 +308,7 @@ export function ResourceDetailPage() {
   const [selectedFeaturesByKey, setSelectedFeaturesByKey] = useState<Record<string, FeatureRef>>(
     {},
   );
+  const [previewMap, setPreviewMap] = useState<maplibregl.Map | null>(null);
   const attributes = useResourceAttributes(
     resource?.id ?? null,
     attributesOpened,
@@ -493,6 +498,57 @@ export function ResourceDetailPage() {
     });
   }
 
+  function handlePreviewFeatureClick(feature: FeatureRef) {
+    const key = getFeatureKey(feature);
+    if (!key) return;
+    toggleFeatureSelection(feature, !selectedFeaturesByKey[key]);
+  }
+
+  function captureViewportBbox() {
+    if (!previewMap) return;
+    const bounds = previewMap.getBounds();
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            bboxOverride: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+          }
+        : current,
+    );
+  }
+
+  function clearBboxOverride() {
+    setConfig((current) => (current ? { ...current, bboxOverride: null } : current));
+  }
+
+  function excludeSelectedFeatures() {
+    setConfig((current) => {
+      if (!current) return current;
+      const existing = new Set(
+        current.excludedFeatures.map((f) => `${f.property}:${String(f.value)}`),
+      );
+      const additions = selectedFeatures
+        .filter((f) => !existing.has(`${f.property}:${String(f.value)}`))
+        .map((f) => ({ property: f.property, value: f.value as string | number }));
+      if (additions.length === 0) return current;
+      return { ...current, excludedFeatures: [...current.excludedFeatures, ...additions] };
+    });
+    setSelectedFeaturesByKey({});
+  }
+
+  function restoreExcludedFeature(feature: ExcludedFeature) {
+    setConfig((current) =>
+      current
+        ? {
+            ...current,
+            excludedFeatures: current.excludedFeatures.filter(
+              (f) => !(f.property === feature.property && f.value === feature.value),
+            ),
+          }
+        : current,
+    );
+  }
+
   if (
     catalog.isLoading ||
     metadata.isLoading ||
@@ -545,7 +601,17 @@ export function ResourceDetailPage() {
             interactive
             focusBounds={featureFocusBounds}
             selectedFeatures={selectedFeatures}
+            boundsOverride={config?.bboxOverride ?? null}
+            excludedFeatures={config?.excludedFeatures ?? []}
+            hideExcluded={false}
+            onFeatureClick={handlePreviewFeatureClick}
+            onMapReady={setPreviewMap}
           />
+          <Text size="xs" c="dimmed" mt="xs">
+            Clique numa feicao no preview para selecioná-la (mesma selecao da
+            tabela de atributos, em verde). Feicoes excluidas do catalogo
+            aparecem em vermelho.
+          </Text>
         </Card>
 
         <Card withBorder radius="md" padding="md">
@@ -604,6 +670,95 @@ export function ResourceDetailPage() {
           </Stack>
         </Card>
       </SimpleGrid>
+
+      <Card withBorder radius="md" padding="md">
+        <Title order={5} mb="xs">
+          Área de exibição e feições excluídas do catálogo
+        </Title>
+        <Text size="sm" c="dimmed" mb="sm">
+          Util quando alguma feicao da tabela tem geometria mal georreferenciada
+          e distorce o enquadramento (bbox) da camada. Nada e alterado na tabela
+          de origem - essas escolhas valem so para este catalogo (mapa, miniaturas
+          e tabela de atributos do app).
+        </Text>
+        <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+          <Stack gap="xs">
+            <Text fw={600} size="sm">
+              Área de exibição (bbox)
+            </Text>
+            <Text size="sm" c="dimmed">
+              {config?.bboxOverride
+                ? `Override ativo: [${config.bboxOverride.map((v) => v.toFixed(4)).join(', ')}]`
+                : 'Sem override - usa o bbox calculado pelo Martin (extent de toda a tabela).'}
+            </Text>
+            <Group gap="sm">
+              <Button size="xs" variant="default" disabled={!previewMap} onClick={captureViewportBbox}>
+                Usar área visível do preview
+              </Button>
+              <Button
+                size="xs"
+                variant="subtle"
+                color="red"
+                disabled={!config?.bboxOverride}
+                onClick={clearBboxOverride}
+              >
+                Remover override
+              </Button>
+            </Group>
+            <Text size="xs" c="dimmed">
+              Navegue/zoom no preview acima até o enquadramento desejado (ex.:
+              Porto Alegre) e clique em "Usar área visível".
+            </Text>
+          </Stack>
+
+          <Stack gap="xs">
+            <Text fw={600} size="sm">
+              Feições excluídas do catálogo
+            </Text>
+            <Group gap="sm">
+              <Button
+                size="xs"
+                variant="default"
+                disabled={selectedFeatures.length === 0}
+                onClick={excludeSelectedFeatures}
+              >
+                Excluir selecionadas ({selectedFeatures.length})
+              </Button>
+              <Text size="xs" c="dimmed">
+                Selecione na tabela de atributos ou clique na feicao no preview.
+              </Text>
+            </Group>
+            {config?.excludedFeatures.length ? (
+              <Group gap="xs">
+                {config.excludedFeatures.map((feature) => (
+                  <Badge
+                    key={`${feature.property}:${feature.value}`}
+                    variant="light"
+                    color="red"
+                    rightSection={
+                      <ActionIcon
+                        size="xs"
+                        variant="transparent"
+                        color="red"
+                        aria-label="Restaurar feicao"
+                        onClick={() => restoreExcludedFeature(feature)}
+                      >
+                        ×
+                      </ActionIcon>
+                    }
+                  >
+                    {feature.property}: {String(feature.value)}
+                  </Badge>
+                ))}
+              </Group>
+            ) : (
+              <Text size="sm" c="dimmed">
+                Nenhuma feicao excluida.
+              </Text>
+            )}
+          </Stack>
+        </SimpleGrid>
+      </Card>
 
       <Card withBorder radius="md" padding={0}>
         <Group

@@ -1,10 +1,12 @@
 # Router principal incluindo todas as rotas.
 from fastapi import APIRouter
 
-from app.api.routes import auth, resources, tiles, users
+from app.api.routes import auth, group_layers, layer_styles, resources, tiles, users
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(tiles.router)
 api_router.include_router(resources.router)
+api_router.include_router(group_layers.router)
+api_router.include_router(layer_styles.router)

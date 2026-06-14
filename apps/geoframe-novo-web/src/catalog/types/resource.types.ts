@@ -49,12 +49,25 @@ export interface ResourceSecurityRule {
   principals: string[];
 }
 
+export interface ExcludedFeature {
+  property: string;
+  value: string | number;
+}
+
 export interface ResourceConfig {
   resourceId: string;
   layerLabel: string;
   fields: Record<string, ResourceFieldConfig>;
   securityRules: ResourceSecurityRule[];
+  bboxOverride: [number, number, number, number] | null;
+  excludedFeatures: ExcludedFeature[];
 }
+
+// GET /catalog/resources/overrides: so os recursos com override configurado.
+export type ResourceOverrides = Record<
+  string,
+  { bboxOverride: [number, number, number, number] | null; excludedFeatures: ExcludedFeature[] }
+>;
 
 export interface ResourceAttributes {
   resourceId: string;

@@ -7,6 +7,7 @@ import type {
   CatalogResource,
   ResourceAttributes,
   ResourceConfig,
+  ResourceOverrides,
   MartinCatalog,
   ResourceColumn,
   ResourceMetadata,
@@ -68,6 +69,16 @@ export function useResourceColumns(tableName: string | null) {
     queryKey: ['resources', 'columns', tableName],
     enabled: !!tableName,
     queryFn: () => apiGet<ResourceColumn[]>(`/catalog/resources/${tableName}/columns`),
+  });
+}
+
+// Overrides de catalogo (bbox manual + feicoes excluidas) so para os recursos
+// que tem algo configurado - usado na galeria e no mapa.
+export function useResourceOverrides() {
+  return useQuery({
+    queryKey: ['resources', 'overrides'],
+    queryFn: () => apiGet<ResourceOverrides>('/catalog/resources/overrides'),
+    staleTime: 60 * 1000,
   });
 }
 

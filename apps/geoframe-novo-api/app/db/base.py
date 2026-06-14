@@ -4,7 +4,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
 
-APP_SCHEMA = get_settings().db_app_schema
+APP_SCHEMA = get_settings().db_schema_app
 
 
 class Base(DeclarativeBase):

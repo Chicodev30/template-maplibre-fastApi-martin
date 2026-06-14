@@ -19,10 +19,11 @@ class Settings(BaseSettings):
     db_password: str = ""
     db_host: str = "lpostdes14.procempa.com.br"
     db_port: int = 6000
-    db_schema: str = "smftest"
+    # Schema com as tabelas de recursos espaciais (catalogo da API + auto_publish do Martin).
+    db_schema_resources: str = "smftest"
     # Schema dedicado para os metadados do app (usuarios, config de recurso,
-    # permissoes), isolado do schema de dados espaciais (db_schema).
-    db_app_schema: str = "gfr_app"
+    # permissoes), isolado do schema de recursos espaciais (db_schema_resources).
+    db_schema_app: str = "gfr_app"
 
     kc_role_visualizador: str = "gfr-visualizador"
     kc_role_admin: str = "gfr-admin"

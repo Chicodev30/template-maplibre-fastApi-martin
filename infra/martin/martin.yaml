@@ -11,7 +11,7 @@ postgres:
   auto_publish:
     tables:
       from_schemas:
-        - ${DB_SCHEMA:-public}
+        - ${DB_SCHEMA_RESOURCES:-public}
       source_id_format: "{schema}.{table}"
       id_columns: [id, gid, ogc_fid]
       clip_geom: true

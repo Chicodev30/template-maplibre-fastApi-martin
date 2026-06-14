@@ -1,10 +1,8 @@
-// Lista de grupos de camadas (publicações). Cada grupo é uma árvore que o
-// LayerTree do app vai renderizar. Daqui o usuário cria, edita e exclui.
+// Lista de estilos salvos (presets por recurso) - catalogo "Estilização".
 import { useState } from 'react';
 import {
   ActionIcon,
   Alert,
-  Badge,
   Button,
   Center,
   Group,
@@ -16,98 +14,87 @@ import {
   Title,
 } from '@mantine/core';
 import { useNavigate } from 'react-router-dom';
-import { useDeleteLayerGroup, useLayerGroups } from '../../catalog/api/groupLayers.api';
-import type { LayerGroupSummary } from '../../catalog/types/catalog.types';
+import { useDeleteLayerStyle, useResourceStyles } from '../../catalog/api/layerStyles.api';
+import type { ResourceStyleSummary } from '../../catalog/types/style.types';
 
 function formatDate(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR');
 }
 
-export function GroupLayersPage() {
+export function StylesPage() {
   const navigate = useNavigate();
-  const groups = useLayerGroups();
-  const deleteGroup = useDeleteLayerGroup();
-  const [toDelete, setToDelete] = useState<LayerGroupSummary | null>(null);
+  const styles = useResourceStyles();
+  const deleteStyle = useDeleteLayerStyle();
+  const [toDelete, setToDelete] = useState<ResourceStyleSummary | null>(null);
 
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end">
         <div>
-          <Title order={3}>Grupo de camadas</Title>
+          <Title order={3}>Estilização</Title>
           <Text c="dimmed" size="sm">
-            {groups.data?.length ?? 0} publicação(ões). Cada grupo vira uma árvore no app.
+            {styles.data?.length ?? 0} estilo(s) salvo(s). Estilos podem ser reutilizados em
+            grupos de camadas.
           </Text>
         </div>
-        <Button onClick={() => navigate('/admin/catalog/group-layers/new')}>
-          Criar novo grupo
-        </Button>
+        <Button onClick={() => navigate('/admin/catalog/styles/new')}>Criar novo estilo</Button>
       </Group>
 
-      {groups.isError && (
+      {styles.isError && (
         <Alert color="red" title="Falha ao carregar">
           A API não respondeu. Verifique se o FastAPI está no ar.
         </Alert>
       )}
 
-      {groups.isLoading ? (
+      {styles.isLoading ? (
         <Center h={240}>
           <Loader />
         </Center>
-      ) : groups.data && groups.data.length === 0 ? (
-        <Alert color="blue" title="Nenhum grupo ainda">
-          Crie o primeiro grupo de camadas para montar a árvore que aparecerá no app.
+      ) : styles.data && styles.data.length === 0 ? (
+        <Alert color="blue" title="Nenhum estilo ainda">
+          Crie o primeiro estilo escolhendo uma camada do catálogo.
         </Alert>
       ) : (
         <Table striped highlightOnHover withTableBorder>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Nome</Table.Th>
-              <Table.Th>Descrição</Table.Th>
-              <Table.Th ta="center">Camadas</Table.Th>
-              <Table.Th ta="center">Visível</Table.Th>
+              <Table.Th>Recurso</Table.Th>
               <Table.Th>Atualizado</Table.Th>
               <Table.Th ta="right">Ações</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {groups.data?.map((group) => (
+            {styles.data?.map((style) => (
               <Table.Tr
-                key={group.id}
+                key={style.id}
                 style={{ cursor: 'pointer' }}
-                onClick={() => navigate(`/admin/catalog/group-layers/${group.id}`)}
+                onClick={() => navigate(`/admin/catalog/styles/${style.id}`)}
               >
                 <Table.Td>
                   <Text fw={600} size="sm">
-                    {group.name}
+                    {style.name}
                   </Text>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed" lineClamp={1}>
-                    {group.description || '—'}
+                    {style.resourceId}
                   </Text>
-                </Table.Td>
-                <Table.Td ta="center">
-                  <Badge variant="light">{group.layerCount}</Badge>
-                </Table.Td>
-                <Table.Td ta="center">
-                  <Badge variant="light" color={group.visible ? 'green' : 'gray'}>
-                    {group.visible ? 'Sim' : 'Não'}
-                  </Badge>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed">
-                    {formatDate(group.updatedAt)}
+                    {formatDate(style.updatedAt)}
                   </Text>
                 </Table.Td>
                 <Table.Td ta="right">
                   <ActionIcon
                     variant="subtle"
                     color="red"
-                    aria-label="Excluir grupo"
+                    aria-label="Excluir estilo"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setToDelete(group);
+                      setToDelete(style);
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -130,7 +117,7 @@ export function GroupLayersPage() {
       <Modal
         opened={!!toDelete}
         onClose={() => setToDelete(null)}
-        title="Excluir grupo de camadas"
+        title="Excluir estilo"
         centered
       >
         <Stack gap="md">
@@ -144,10 +131,10 @@ export function GroupLayersPage() {
             </Button>
             <Button
               color="red"
-              loading={deleteGroup.isPending}
+              loading={deleteStyle.isPending}
               onClick={() => {
                 if (!toDelete) return;
-                deleteGroup.mutate(toDelete.id, { onSuccess: () => setToDelete(null) });
+                deleteStyle.mutate(toDelete.id, { onSuccess: () => setToDelete(null) });
               }}
             >
               Excluir

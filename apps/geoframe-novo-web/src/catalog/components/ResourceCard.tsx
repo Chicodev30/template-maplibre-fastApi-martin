@@ -1,15 +1,27 @@
 // Card de um resource na galeria.
 import { Badge, Card, Group, Stack, Text } from '@mantine/core';
-import type { CatalogResource, ResourceMetadata } from '../types/resource.types';
+import type {
+  CatalogResource,
+  ExcludedFeature,
+  ResourceMetadata,
+} from '../types/resource.types';
 import { ResourceThumbnail } from './ResourceThumbnail';
 
 interface Props {
   resource: CatalogResource;
   metadata?: ResourceMetadata;
+  bboxOverride?: [number, number, number, number] | null;
+  excludedFeatures?: ExcludedFeature[];
   onClick: () => void;
 }
 
-export function ResourceCard({ resource, metadata, onClick }: Props) {
+export function ResourceCard({
+  resource,
+  metadata,
+  bboxOverride,
+  excludedFeatures,
+  onClick,
+}: Props) {
   return (
     <Card
       withBorder
@@ -19,7 +31,11 @@ export function ResourceCard({ resource, metadata, onClick }: Props) {
       style={{ cursor: 'pointer' }}
     >
       <Card.Section>
-        <ResourceThumbnail sourceId={resource.id} />
+        <ResourceThumbnail
+          sourceId={resource.id}
+          boundsOverride={bboxOverride}
+          excludedFeatures={excludedFeatures}
+        />
       </Card.Section>
 
       <Stack gap={6} mt="sm">

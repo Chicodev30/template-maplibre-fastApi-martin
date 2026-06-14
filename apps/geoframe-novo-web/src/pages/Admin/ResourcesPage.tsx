@@ -17,12 +17,14 @@ import { env } from '../../app/env';
 import {
   useCatalogResources,
   useResourceMetadata,
+  useResourceOverrides,
 } from '../../catalog/api/resources.api';
 import { ResourceCard } from '../../catalog/components/ResourceCard';
 
 export function ResourcesPage() {
   const catalog = useCatalogResources();
   const metadata = useResourceMetadata();
+  const overrides = useResourceOverrides();
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
 
@@ -80,6 +82,8 @@ export function ResourcesPage() {
               key={r.id}
               resource={r}
               metadata={metadata.data?.[r.id]}
+              bboxOverride={overrides.data?.[r.id]?.bboxOverride}
+              excludedFeatures={overrides.data?.[r.id]?.excludedFeatures}
               onClick={() =>
                 navigate(`/admin/catalog/resources/${encodeURIComponent(r.id)}`)
               }

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request
+from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,7 +34,10 @@ def get_identity(
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Token ausente")
-    claims = decode_token(auth[len("Bearer ") :])
+    try:
+        claims = decode_token(auth[len("Bearer ") :])
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Token invalido ou expirado") from exc
     client_roles = (
         claims.get("resource_access", {})
         .get(settings.keycloak_client_id, {})

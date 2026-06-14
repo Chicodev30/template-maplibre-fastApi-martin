@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -51,14 +51,26 @@ class ResourceSecurityRule(BaseModel):
     principals: list[str] = Field(default_factory=list)
 
 
+class ExcludedFeature(BaseModel):
+    property: str
+    value: str | int
+
+
 class ResourceConfigIn(BaseModel):
     layerLabel: str
     fields: dict[str, ResourceFieldConfig]
     securityRules: list[ResourceSecurityRule] = Field(default_factory=list)
+    bboxOverride: list[float] | None = None
+    excludedFeatures: list[ExcludedFeature] = Field(default_factory=list)
 
 
 class ResourceConfigOut(ResourceConfigIn):
     resourceId: str
+
+
+class ResourceOverrides(BaseModel):
+    bboxOverride: list[float] | None = None
+    excludedFeatures: list[ExcludedFeature] = Field(default_factory=list)
 
 
 class ResourceAttributes(BaseModel):
@@ -107,7 +119,7 @@ _GEOM_COLUMN_SQL = text(
 
 @router.get("", response_model=list[ResourceMetadata])
 def list_resources(db: Session = Depends(get_session)) -> list[ResourceMetadata]:
-    rows = db.execute(_LIST_SQL, {"schema": settings.db_schema}).mappings().all()
+    rows = db.execute(_LIST_SQL, {"schema": settings.db_schema_resources}).mappings().all()
     return [
         ResourceMetadata(
             id=f"{r['schema_name']}.{r['table_name']}",
@@ -122,12 +134,33 @@ def list_resources(db: Session = Depends(get_session)) -> list[ResourceMetadata]
     ]
 
 
+@router.get("/overrides", response_model=dict[str, ResourceOverrides])
+def list_resource_overrides(db: Session = Depends(get_session)) -> dict[str, ResourceOverrides]:
+    # So traz recursos com override de bbox e/ou feicoes excluidas configurados,
+    # para a galeria/miniaturas e o mapa aplicarem sem 1 request por recurso.
+    rows = db.execute(
+        select(ResourceConfig).where(
+            or_(
+                ResourceConfig.bbox_override.is_not(None),
+                func.json_array_length(ResourceConfig.excluded_features) > 0,
+            )
+        )
+    ).scalars().all()
+    return {
+        config.resource_id: ResourceOverrides(
+            bboxOverride=config.bbox_override,
+            excludedFeatures=config.excluded_features,
+        )
+        for config in rows
+    }
+
+
 @router.get("/{table_name}/columns", response_model=list[ResourceColumn])
 def list_resource_columns(
     table_name: str, db: Session = Depends(get_session)
 ) -> list[ResourceColumn]:
     rows = (
-        db.execute(_COLUMNS_SQL, {"schema": settings.db_schema, "table": table_name})
+        db.execute(_COLUMNS_SQL, {"schema": settings.db_schema_resources, "table": table_name})
         .mappings()
         .all()
     )
@@ -143,7 +176,7 @@ def _ensure_resource_exists(source_id: str, db: Session) -> tuple[str, str]:
     if "." not in source_id:
         raise HTTPException(status_code=404, detail="Recurso nao encontrado")
     schema_name, table_name = source_id.split(".", 1)
-    if schema_name != settings.db_schema:
+    if schema_name != settings.db_schema_resources:
         raise HTTPException(status_code=404, detail="Recurso nao encontrado")
     valid = db.execute(
         text(
@@ -206,6 +239,24 @@ def _build_attribute_filter(
     return f"WHERE {text_column} ILIKE :filter_value "
 
 
+def _build_exclusion_conditions(
+    column_types: dict[str, str],
+    excluded_features: list[dict[str, Any]],
+    params: dict[str, Any],
+) -> list[str]:
+    # Feicoes desconsideradas no catalogo (georreferenciamento errado etc.) -
+    # nao alteram a tabela original, so somem das consultas desta API.
+    conditions: list[str] = []
+    for i, feature in enumerate(excluded_features):
+        prop = feature.get("property")
+        if prop not in column_types:
+            continue
+        param_name = f"excl_{i}"
+        conditions.append(f'"{prop}" IS DISTINCT FROM CAST(:{param_name} AS {column_types[prop]})')
+        params[param_name] = feature.get("value")
+    return conditions
+
+
 @router.get("/{source_id}/config", response_model=ResourceConfigOut)
 def get_resource_config(
     source_id: str,
@@ -225,12 +276,16 @@ def get_resource_config(
             layerLabel=f"{table_name}.{geom_column or 'geom'}",
             fields={},
             securityRules=[],
+            bboxOverride=None,
+            excludedFeatures=[],
         )
     return ResourceConfigOut(
         resourceId=config.resource_id,
         layerLabel=config.layer_label,
         fields=config.fields,
         securityRules=config.security_rules,
+        bboxOverride=config.bbox_override,
+        excludedFeatures=config.excluded_features,
     )
 
 
@@ -251,6 +306,8 @@ def save_resource_config(
     config.layer_label = payload.layerLabel
     config.fields = {name: field.model_dump() for name, field in payload.fields.items()}
     config.security_rules = [rule.model_dump() for rule in payload.securityRules]
+    config.bbox_override = payload.bboxOverride
+    config.excluded_features = [feature.model_dump() for feature in payload.excludedFeatures]
     db.commit()
     db.refresh(config)
     return ResourceConfigOut(
@@ -258,6 +315,8 @@ def save_resource_config(
         layerLabel=config.layer_label,
         fields=config.fields,
         securityRules=config.security_rules,
+        bboxOverride=config.bbox_override,
+        excludedFeatures=config.excluded_features,
     )
 
 
@@ -310,6 +369,16 @@ def get_resource_attributes(
         params,
     )
 
+    config = db.execute(
+        select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
+    ).scalar_one_or_none()
+    exclusion_conditions = _build_exclusion_conditions(
+        column_types, config.excluded_features if config else [], params
+    )
+    if exclusion_conditions:
+        joined = " AND ".join(exclusion_conditions)
+        where_clause = f"{where_clause}AND {joined} " if where_clause else f"WHERE {joined} "
+
     order_clause = ""
     if sort_column and sort_column in columns:
         direction = "DESC" if sort_direction.lower() == "desc" else "ASC"
@@ -353,10 +422,10 @@ def exact_count(table_name: str, db: Session = Depends(get_session)) -> dict[str
             "SELECT 1 FROM geometry_columns "
             "WHERE f_table_schema = :schema AND f_table_name = :table"
         ),
-        {"schema": settings.db_schema, "table": table_name},
+        {"schema": settings.db_schema_resources, "table": table_name},
     ).first()
     if not valid:
         raise HTTPException(status_code=404, detail="Tabela nao encontrada no schema configurado")
-    sql = f'SELECT count(*) AS n FROM "{settings.db_schema}"."{table_name}"'
+    sql = f'SELECT count(*) AS n FROM "{settings.db_schema_resources}"."{table_name}"'
     n = db.execute(text(sql)).scalar_one()
-    return {"id": f"{settings.db_schema}.{table_name}", "feature_count": int(n)}
+    return {"id": f"{settings.db_schema_resources}.{table_name}", "feature_count": int(n)}

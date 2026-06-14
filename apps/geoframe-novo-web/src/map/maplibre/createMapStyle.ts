@@ -5,6 +5,7 @@ import type { StyleSpecification } from 'maplibre-gl';
 export function createOsmStyle(): StyleSpecification {
   return {
     version: 8,
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: {
       osm: {
         type: 'raster',

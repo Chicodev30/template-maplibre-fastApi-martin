@@ -20,6 +20,7 @@ const groups: NavGroup[] = [
     items: [
       { label: 'Grupo de camadas', to: '/admin/catalog/group-layers' },
       { label: 'Recursos', to: '/admin/catalog/resources' },
+      { label: 'Estilização', to: '/admin/catalog/styles' },
     ],
   },
   {

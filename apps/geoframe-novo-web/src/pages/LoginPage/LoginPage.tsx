@@ -13,7 +13,7 @@ export function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, isLoading, isDenied, role, login } = useAuth();
-  const from = (location.state as LoginLocationState | null)?.from ?? '/map';
+  const from = (location.state as LoginLocationState | null)?.from ?? '/';
 
   useEffect(() => {
     if (!isLoading && isAuthenticated && role) {

@@ -35,7 +35,7 @@ export function AdminLayout() {
                 <Badge variant="light">{ROLE_LABEL[role]}</Badge>
               </Group>
             )}
-            <Anchor component={Link} to="/map" size="sm">
+            <Anchor component={Link} to="/" size="sm">
               Mapa
             </Anchor>
             <Button size="xs" variant="subtle" onClick={logout}>
