@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import {
   Alert,
+  Button,
   Center,
   Group,
   Loader,
@@ -47,12 +48,17 @@ export function ResourcesPage() {
             {catalog.data?.length ?? 0} camadas publicadas no Martin
           </Text>
         </div>
-        <TextInput
-          placeholder="Filtrar..."
-          value={search}
-          onChange={(e) => setSearch(e.currentTarget.value)}
-          w={240}
-        />
+        <Group gap="sm">
+          <TextInput
+            placeholder="Filtrar..."
+            value={search}
+            onChange={(e) => setSearch(e.currentTarget.value)}
+            w={240}
+          />
+          <Button onClick={() => navigate('/admin/catalog/resources/new')}>
+            Adicionar Recurso
+          </Button>
+        </Group>
       </Group>
 
       {catalog.isError && (

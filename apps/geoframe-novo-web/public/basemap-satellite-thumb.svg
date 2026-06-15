@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-labelledby="title desc">
+  <title id="title">Miniatura generica de satelite</title>
+  <desc id="desc">Ilustracao abstrata com agua, vegetacao e vias urbanas.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#183a2d"/>
+      <stop offset="52%" stop-color="#335f3a"/>
+      <stop offset="100%" stop-color="#687a3d"/>
+    </linearGradient>
+  </defs>
+  <rect width="72" height="72" rx="10" fill="url(#bg)"/>
+  <path d="M-4 12C12 2 26 4 34 16s17 15 26 8 20-6 24 4v20c-9 8-19 11-30 7S35 42 24 46 6 56-4 64Z" fill="#7ca16a" opacity=".92"/>
+  <path d="M54-4c8 9 11 19 8 28S50 41 40 48 23 62 24 76h16c6-11 15-18 25-23s18-14 19-28V-4Z" fill="#2f4d2e" opacity=".88"/>
+  <path d="M-6 44c10-6 21-5 29 1s15 8 24 5 18-1 25 6v20H-6Z" fill="#95ac74" opacity=".9"/>
+  <path d="M6 60 64 8" stroke="#d7d2c6" stroke-width="8" stroke-linecap="round" opacity=".95"/>
+  <path d="M-2 28 32 60" stroke="#bfb7a6" stroke-width="5" stroke-linecap="round" opacity=".9"/>
+  <path d="M50 18 68 34" stroke="#f0ead8" stroke-width="3" stroke-linecap="round" opacity=".95"/>
+  <path d="M20-6c6 7 8 14 6 22S19 31 12 38 2 53 4 72h10c1-11 5-19 12-26s12-14 13-24-2-19-8-28Z" fill="#4f7ea3" opacity=".95"/>
+  <circle cx="17" cy="22" r="4" fill="#dbe8ef" opacity=".7"/>
+  <circle cx="49" cy="51" r="5" fill="#2a4026" opacity=".55"/>
+  <circle cx="59" cy="21" r="3" fill="#edf3d0" opacity=".5"/>
+</svg>

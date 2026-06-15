@@ -49,6 +49,25 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
+  const res = await fetch(`${env.apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: { ...authHeaders },
+    body,
+  });
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = typeof body?.detail === 'string' ? body.detail : '';
+    } catch {
+      // resposta sem corpo JSON
+    }
+    throw new ApiError(res.status, detail || `${res.status} ${res.statusText} @ ${path}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function apiDelete(path: string): Promise<void> {
   const res = await fetch(`${env.apiBaseUrl}${path}`, {
     method: 'DELETE',

@@ -2,15 +2,17 @@
 // Tudo passa pela API FastAPI (gateway do Martin); o front nunca fala direto
 // com o Martin.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPut } from '../../app/http';
+import { apiGet, apiPostForm, apiPut } from '../../app/http';
 import type {
   CatalogResource,
+  KeywordSearchResponse,
   ResourceAttributes,
   ResourceConfig,
   ResourceOverrides,
   MartinCatalog,
   ResourceColumn,
   ResourceMetadata,
+  SearchFilterRule,
   TileJson,
 } from '../types/resource.types';
 
@@ -72,6 +74,30 @@ export function useResourceColumns(tableName: string | null) {
   });
 }
 
+// Valores distintos de um campo (autocomplete do painel "Buscar").
+export function useResourceFieldValues(
+  sourceId: string | null,
+  column: string | null,
+  query: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['resources', 'values', sourceId, column, query],
+    enabled: !!sourceId && !!column && enabled,
+    staleTime: 30 * 1000,
+    queryFn: () => {
+      const params = new URLSearchParams({ column: column ?? '', limit: '20' });
+      if (query.trim()) {
+        params.set('q', query.trim());
+      }
+      return apiGet<string[]>(
+        `/catalog/resources/${encodeURIComponent(sourceId ?? '')}/values?${params.toString()}`,
+      );
+    },
+    placeholderData: (previous) => previous,
+  });
+}
+
 // Overrides de catalogo (bbox manual + feicoes excluidas) so para os recursos
 // que tem algo configurado - usado na galeria e no mapa.
 export function useResourceOverrides() {
@@ -116,6 +142,8 @@ export function useResourceAttributes(
   filterValue: string,
   sortColumn: string | null,
   sortDirection: 'asc' | 'desc',
+  extraFilters?: SearchFilterRule[] | null,
+  bbox?: [number, number, number, number] | null,
 ) {
   return useQuery({
     queryKey: [
@@ -129,6 +157,8 @@ export function useResourceAttributes(
       filterValue,
       sortColumn,
       sortDirection,
+      extraFilters ?? null,
+      bbox ?? null,
     ],
     enabled: !!sourceId && opened,
     queryFn: () => {
@@ -147,10 +177,53 @@ export function useResourceAttributes(
       if (sortColumn) {
         params.set('sort_column', sortColumn);
       }
+      if (extraFilters && extraFilters.length > 0) {
+        params.set('filters', JSON.stringify(extraFilters));
+      }
+      if (bbox) {
+        params.set('bbox', bbox.join(','));
+      }
       return apiGet<ResourceAttributes>(
         `/catalog/resources/${encodeURIComponent(sourceId ?? '')}/attributes?${params.toString()}`,
       );
     },
     placeholderData: (previous) => previous,
+  });
+}
+
+// Busca por palavra-chave (painel "Palavra-chave" do menu principal): procura
+// o termo em todas as colunas de texto de cada tabela.
+export function useKeywordSearch(
+  q: string,
+  resourceIds: string[] | null,
+  limit: number,
+  offset: number,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['resources', 'keyword-search', q, resourceIds, limit, offset],
+    enabled: enabled && q.trim().length >= 3,
+    queryFn: () => {
+      const params = new URLSearchParams({ q: q.trim(), limit: String(limit), offset: String(offset) });
+      if (resourceIds && resourceIds.length > 0) {
+        params.set('resource_ids', resourceIds.join(','));
+      }
+      return apiGet<KeywordSearchResponse>(`/catalog/resources/keyword-search?${params.toString()}`);
+    },
+    placeholderData: (previous) => previous,
+  });
+}
+
+// Upload de arquivo vetorial -> nova tabela no schema de recursos (Martin
+// auto-publica a camada nova em seguida).
+export function useUploadResource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (formData: FormData) =>
+      apiPostForm<ResourceMetadata>('/catalog/resources/upload', formData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      queryClient.invalidateQueries({ queryKey: ['resources', 'metadata'] });
+    },
   });
 }

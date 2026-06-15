@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-label="Miniatura generica de mapa de ruas">
+  <rect width="72" height="72" rx="10" fill="#f3f1df"/>
+  <path d="M0 48 72 12" stroke="#d7d1bc" stroke-width="12" opacity=".9"/>
+  <path d="M-8 16 58 72" stroke="#e6e1cd" stroke-width="10" opacity=".95"/>
+  <path d="M10 0 10 72" stroke="#cfe3c6" stroke-width="8"/>
+  <path d="M46 0 46 72" stroke="#cfe3c6" stroke-width="6" opacity=".9"/>
+  <path d="M0 30 72 30" stroke="#dcead4" stroke-width="6" opacity=".9"/>
+  <path d="M0 58 72 58" stroke="#dcead4" stroke-width="5" opacity=".9"/>
+  <circle cx="28" cy="23" r="5" fill="#8cc28f"/>
+  <circle cx="57" cy="50" r="6" fill="#9ad0a0"/>
+  <path d="M0 48 72 12" stroke="#ffffff" stroke-width="2.5" opacity=".9"/>
+  <path d="M-8 16 58 72" stroke="#ffffff" stroke-width="2" opacity=".82"/>
+</svg>

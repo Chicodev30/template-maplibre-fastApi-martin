@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-label="Miniatura generica de mapa humanitario">
+  <rect width="72" height="72" rx="10" fill="#fbf3e3"/>
+  <path d="M0 46 72 16" stroke="#e4d7bf" stroke-width="12"/>
+  <path d="M-6 20 62 72" stroke="#eadfca" stroke-width="8"/>
+  <path d="M12 0 12 72" stroke="#d3e5cf" stroke-width="8" opacity=".95"/>
+  <path d="M0 58 72 58" stroke="#d7e7d2" stroke-width="6"/>
+  <path d="M8 10h16v10H8zM44 20h14v9H44zM36 46h18v10H36z" fill="#dc6b52" opacity=".95"/>
+  <path d="M0 46 72 16" stroke="#fff7ef" stroke-width="2.5" opacity=".95"/>
+  <path d="M-6 20 62 72" stroke="#fff7ef" stroke-width="2" opacity=".85"/>
+</svg>

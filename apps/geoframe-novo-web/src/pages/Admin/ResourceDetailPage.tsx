@@ -14,6 +14,7 @@ import {
   Divider,
   Group,
   Loader,
+  NumberInput,
   ScrollArea,
   Select,
   SimpleGrid,
@@ -26,6 +27,13 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useUsers } from '../../admin/users/users.api';
+import {
+  useCreateResourceConfigProfile,
+  useDeleteResourceConfigProfile,
+  useResourceConfigProfile,
+  useResourceConfigProfiles,
+  useUpdateResourceConfigProfile,
+} from '../../catalog/api/configProfiles.api';
 import {
   useCatalogResources,
   useResourceAttributes,
@@ -43,6 +51,7 @@ import type {
   ExcludedFeature,
   ResourceColumn,
   ResourceConfig,
+  ResourceConfigProfileInput,
   ResourceFieldConfig,
   ResourceSecurityRule,
 } from '../../catalog/types/resource.types';
@@ -275,6 +284,274 @@ function MiniTransferList({
         </Card>
       </SimpleGrid>
     </Stack>
+  );
+}
+
+function ConfigProfilesSection({
+  resourceId,
+  columns,
+  fieldOptions,
+  principalOptions,
+}: {
+  resourceId: string;
+  columns: ResourceColumn[] | undefined;
+  fieldOptions: TransferOption[];
+  principalOptions: TransferOption[];
+}) {
+  const profiles = useResourceConfigProfiles(resourceId);
+  const [selectedId, setSelectedId] = useState<number | 'new' | null>(null);
+  const detail = useResourceConfigProfile(typeof selectedId === 'number' ? selectedId : null);
+  const createProfile = useCreateResourceConfigProfile();
+  const updateProfile = useUpdateResourceConfigProfile(
+    typeof selectedId === 'number' ? selectedId : 0,
+  );
+  const deleteProfile = useDeleteResourceConfigProfile();
+
+  const [name, setName] = useState('');
+  const [fields, setFields] = useState<Record<string, ResourceFieldConfig>>({});
+  const [securityRules, setSecurityRules] = useState<ResourceSecurityRule[]>([]);
+  const [minZoom, setMinZoom] = useState<number | null>(null);
+  const [maxZoom, setMaxZoom] = useState<number | null>(null);
+
+  const defaultFields = useMemo(
+    () => Object.fromEntries((columns ?? []).map((col) => [col.name, defaultFieldConfig(col)])),
+    [columns],
+  );
+
+  useEffect(() => {
+    if (selectedId === 'new') {
+      setName('');
+      setFields(defaultFields);
+      setSecurityRules([]);
+      setMinZoom(null);
+      setMaxZoom(null);
+    } else if (selectedId != null && detail.data) {
+      setName(detail.data.name);
+      setFields({ ...defaultFields, ...detail.data.fields });
+      setSecurityRules(detail.data.securityRules);
+      setMinZoom(detail.data.minZoom);
+      setMaxZoom(detail.data.maxZoom);
+    }
+  }, [selectedId, detail.data, defaultFields]);
+
+  function updateField(fieldName: string, patch: Partial<ResourceFieldConfig>) {
+    setFields((current) => ({
+      ...current,
+      [fieldName]: { ...current[fieldName], ...patch },
+    }));
+  }
+
+  function addRestriction() {
+    setSecurityRules((current) => [
+      ...current,
+      { id: crypto.randomUUID(), type: 'hide_fields', fieldNames: [], principals: [] },
+    ]);
+  }
+
+  function updateRule(ruleId: string, patch: Partial<ResourceSecurityRule>) {
+    setSecurityRules((current) =>
+      current.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule)),
+    );
+  }
+
+  function removeRestriction(ruleId: string) {
+    setSecurityRules((current) => current.filter((rule) => rule.id !== ruleId));
+  }
+
+  function handleSave() {
+    const payload: ResourceConfigProfileInput = {
+      resourceId,
+      name: name.trim() || 'Sem nome',
+      fields,
+      securityRules,
+      minZoom,
+      maxZoom,
+    };
+    if (selectedId === 'new') {
+      createProfile.mutate(payload, {
+        onSuccess: (saved) => setSelectedId(saved.id),
+      });
+    } else if (typeof selectedId === 'number') {
+      updateProfile.mutate(payload);
+    }
+  }
+
+  function handleDelete() {
+    if (typeof selectedId !== 'number') return;
+    deleteProfile.mutate(selectedId, { onSuccess: () => setSelectedId(null) });
+  }
+
+  const profileOptions = [
+    ...(profiles.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+    { value: 'new', label: '+ Novo perfil' },
+  ];
+  const saving = createProfile.isPending || updateProfile.isPending;
+
+  return (
+    <Card withBorder radius="md" padding="md">
+      <Group justify="space-between" mb="sm" align="flex-start">
+        <div>
+          <Title order={5}>Configuracoes</Title>
+          <Text size="sm" c="dimmed">
+            Perfis alternativos de campos, seguranca e escala de zoom, reutilizaveis em qualquer
+            grupo de camadas. Sem perfil selecionado, o grupo usa o default: todos os campos em
+            tabela/popup, sem restricao e sem limite de zoom.
+          </Text>
+        </div>
+        <Select
+          placeholder="Selecione um perfil"
+          data={profileOptions}
+          value={selectedId == null ? null : String(selectedId)}
+          onChange={(value) =>
+            setSelectedId(value == null ? null : value === 'new' ? 'new' : Number(value))
+          }
+          w={220}
+        />
+      </Group>
+
+      {selectedId == null && (
+        <Text size="sm" c="dimmed">
+          Selecione um perfil existente ou crie um novo para configurar campos, seguranca e zoom
+          especificos.
+        </Text>
+      )}
+
+      {selectedId != null && (
+        <Stack gap="md">
+          <Group align="flex-end">
+            <TextInput
+              label="Nome do perfil"
+              placeholder="Ex.: Publico, Restrito setor X"
+              value={name}
+              onChange={(e) => setName(e.currentTarget.value)}
+              style={{ flex: 1 }}
+            />
+            <NumberInput
+              label="Zoom minimo"
+              placeholder="sem limite"
+              min={0}
+              max={22}
+              value={minZoom ?? ''}
+              onChange={(value) => setMinZoom(value === '' ? null : Number(value))}
+              w={140}
+            />
+            <NumberInput
+              label="Zoom maximo"
+              placeholder="sem limite"
+              min={0}
+              max={22}
+              value={maxZoom ?? ''}
+              onChange={(value) => setMaxZoom(value === '' ? null : Number(value))}
+              w={140}
+            />
+          </Group>
+
+          <Table striped highlightOnHover withTableBorder>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Campo</Table.Th>
+                <Table.Th>Rotulo</Table.Th>
+                <Table.Th>Pesq.</Table.Th>
+                <Table.Th>Tabela</Table.Th>
+                <Table.Th>Popup</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {columns?.map((col) => {
+                const field = fields[col.name] ?? defaultFieldConfig(col);
+                return (
+                  <Table.Tr key={col.name}>
+                    <Table.Td>
+                      <Text fw={600} size="sm">
+                        {col.name}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <TextInput
+                        value={field.label}
+                        onChange={(e) => updateField(col.name, { label: e.currentTarget.value })}
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Checkbox
+                        checked={field.searchable}
+                        onChange={(e) =>
+                          updateField(col.name, { searchable: e.currentTarget.checked })
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Checkbox
+                        checked={field.showInTable}
+                        onChange={(e) =>
+                          updateField(col.name, { showInTable: e.currentTarget.checked })
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Checkbox
+                        checked={field.showInPopup}
+                        onChange={(e) =>
+                          updateField(col.name, { showInPopup: e.currentTarget.checked })
+                        }
+                      />
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
+            </Table.Tbody>
+          </Table>
+
+          <Group justify="space-between">
+            <Title order={6}>Seguranca</Title>
+            <Button size="xs" onClick={addRestriction}>
+              Adicionar restricao
+            </Button>
+          </Group>
+          <Stack gap="md">
+            {securityRules.length === 0 && (
+              <Text size="sm" c="dimmed">
+                Nenhuma restricao configurada.
+              </Text>
+            )}
+            {securityRules.map((rule, index) => (
+              <Card key={rule.id} withBorder radius="sm" padding="md">
+                <Group justify="space-between" mb="sm">
+                  <Title order={6}>Restricao {index + 1}: ocultar campos</Title>
+                  <Button color="red" variant="subtle" size="xs" onClick={() => removeRestriction(rule.id)}>
+                    Remover
+                  </Button>
+                </Group>
+                <Divider mb="md" />
+                <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+                  <MiniTransferList
+                    title="Campos"
+                    options={fieldOptions}
+                    selected={rule.fieldNames}
+                    onChange={(fieldNames) => updateRule(rule.id, { fieldNames })}
+                  />
+                  <MiniTransferList
+                    title="Usuarios / grupos / papeis"
+                    options={principalOptions}
+                    selected={rule.principals}
+                    onChange={(principals) => updateRule(rule.id, { principals })}
+                  />
+                </SimpleGrid>
+              </Card>
+            ))}
+          </Stack>
+
+          <Group justify="space-between">
+            <Button color="red" variant="subtle" onClick={handleDelete} disabled={selectedId === 'new'}>
+              Excluir perfil
+            </Button>
+            <Button onClick={handleSave} loading={saving}>
+              {selectedId === 'new' ? 'Criar perfil' : 'Salvar perfil'}
+            </Button>
+          </Group>
+        </Stack>
+      )}
+    </Card>
   );
 }
 
@@ -1124,6 +1401,13 @@ export function ResourceDetailPage() {
           ))}
         </Stack>
       </Card>
+
+      <ConfigProfilesSection
+        resourceId={resource.id}
+        columns={columns.data}
+        fieldOptions={fieldOptions}
+        principalOptions={principalOptions}
+      />
     </Stack>
   );
 }

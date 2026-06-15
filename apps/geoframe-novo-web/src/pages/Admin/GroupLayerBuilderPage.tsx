@@ -29,6 +29,7 @@ import {
   useLayerGroup,
   useUpdateLayerGroup,
 } from '../../catalog/api/groupLayers.api';
+import { useResourceConfigProfiles } from '../../catalog/api/configProfiles.api';
 import { useLayerStyle, useResourceStyles } from '../../catalog/api/layerStyles.api';
 import { useCatalogResources, useResourceColumns } from '../../catalog/api/resources.api';
 import { LayerTree } from '../../catalog/components/LayerTree';
@@ -384,6 +385,12 @@ function LayerInspector({
   const zoom: [number, number] = [layer.minZoom ?? 0, layer.maxZoom ?? 22];
   const fieldOptions = columns.map((c) => ({ value: c.name, label: c.name }));
 
+  const configProfiles = useResourceConfigProfiles(layer.resourceId);
+  const configProfileOptions = [
+    { value: '', label: 'Nenhum (default)' },
+    ...(configProfiles.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+  ];
+
   const presets = useResourceStyles(layer.resourceId);
   const [presetId, setPresetId] = useState<number | null>(null);
   const presetDetail = useLayerStyle(presetId);
@@ -444,6 +451,16 @@ function LayerInspector({
             ]}
           />
         </div>
+
+        <Select
+          label="Configuracao"
+          description="Perfil de campos/seguranca/zoom desta camada. Sem perfil, vale o default do recurso."
+          data={configProfileOptions}
+          value={layer.configProfileId != null ? String(layer.configProfileId) : ''}
+          onChange={(value) =>
+            onPatch({ configProfileId: value ? Number(value) : null })
+          }
+        />
 
         <Divider label="Filtro" labelPosition="left" mt="sm" />
         <Text size="xs" c="dimmed">

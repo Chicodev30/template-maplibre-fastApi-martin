@@ -21,12 +21,22 @@ export interface LayerNode extends BaseNode {
   resourceId: string;
   minZoom?: number | null;
   maxZoom?: number | null;
+  configProfileId?: number | null;
   filterRules: FilterRule[];
   sqlFilter?: string | null;
   style: LayerStyle;
 }
 
 export type TreeNode = FolderNode | LayerNode;
+
+// Subconjunto de LayerNode necessario para abrir a tabela de atributos -
+// permite abrir a tabela tanto a partir da arvore de camadas quanto do
+// resultado do painel "Buscar".
+export interface AttributeTableLayer {
+  resourceId: string;
+  label: string;
+  configProfileId?: number | null;
+}
 
 export interface LayerGroupSummary {
   id: number;

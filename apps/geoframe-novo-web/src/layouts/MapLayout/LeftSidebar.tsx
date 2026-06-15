@@ -1,10 +1,10 @@
 // Painel "Camadas": lista os grupos de camadas publicados no admin como
 // pastas (com grupos internos e camadas dentro), em modo leitura.
 import { useState } from 'react';
-import { ActionIcon, Badge, Box, Center, Group, Loader, ScrollArea, Stack, Text } from '@mantine/core';
+import { ActionIcon, Badge, Box, Center, Group, Loader, Stack, Text } from '@mantine/core';
 import { useLayerGroup, useLayerGroups } from '../../catalog/api/groupLayers.api';
 import type { LayerNode, TreeNode } from '../../catalog/types/catalog.types';
-import { ChevronIcon, CollapseIcon, EyeIcon, FolderIcon, LayerIcon, TableIcon } from './icons';
+import { ChevronIcon, EyeIcon, FolderIcon, LayerIcon, TableIcon } from './icons';
 
 // Nó da árvore de um grupo (folder interno ou camada), só leitura.
 function TreeRow({
@@ -114,6 +114,8 @@ function LayerGroupFolder({
 }) {
   const [expanded, setExpanded] = useState(false);
   const detail = useLayerGroup(expanded ? id : null);
+  const groupKey = `group:${id}`;
+  const groupVisible = visibilityOverrides[groupKey] ?? true;
 
   return (
     <Box>
@@ -137,6 +139,18 @@ function LayerGroupFolder({
         <Badge size="xs" variant="light" color="gray">
           {layerCount}
         </Badge>
+        <ActionIcon
+          variant="subtle"
+          color={groupVisible ? 'blue' : 'gray'}
+          size="xs"
+          aria-label={groupVisible ? 'Ocultar grupo' : 'Mostrar grupo'}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleVisible(groupKey, !groupVisible);
+          }}
+        >
+          <EyeIcon off={!groupVisible} />
+        </ActionIcon>
       </Group>
 
       {expanded && (
@@ -168,12 +182,10 @@ function LayerGroupFolder({
 }
 
 export function LeftSidebar({
-  onClose,
   visibilityOverrides,
   onToggleVisible,
   onOpenTable,
 }: {
-  onClose: () => void;
   visibilityOverrides: Record<string, boolean>;
   onToggleVisible: (id: string, visible: boolean) => void;
   onOpenTable: (node: LayerNode) => void;
@@ -181,46 +193,28 @@ export function LeftSidebar({
   const groups = useLayerGroups();
 
   return (
-    <Stack gap={0} h="100%">
-      <Group
-        justify="space-between"
-        px="sm"
-        py={6}
-        style={{ borderBottom: '1px solid var(--mantine-color-gray-3)' }}
-      >
-        <Text fw={600} size="sm">
-          Camadas
+    <Stack gap={0} p={4}>
+      {groups.isLoading ? (
+        <Center py="md">
+          <Loader size="sm" />
+        </Center>
+      ) : groups.data && groups.data.length > 0 ? (
+        groups.data.map((g) => (
+          <LayerGroupFolder
+            key={g.id}
+            id={g.id}
+            name={g.name}
+            layerCount={g.layerCount}
+            visibilityOverrides={visibilityOverrides}
+            onToggleVisible={onToggleVisible}
+            onOpenTable={onOpenTable}
+          />
+        ))
+      ) : (
+        <Text size="xs" c="dimmed" ta="center" py="md">
+          Nenhum grupo de camadas publicado.
         </Text>
-        <ActionIcon variant="subtle" color="gray" size="xs" aria-label="Esconder painel" onClick={onClose}>
-          <CollapseIcon />
-        </ActionIcon>
-      </Group>
-
-      <ScrollArea style={{ flex: 1 }}>
-        <Stack gap={0} p={4}>
-          {groups.isLoading ? (
-            <Center py="md">
-              <Loader size="sm" />
-            </Center>
-          ) : groups.data && groups.data.length > 0 ? (
-            groups.data.map((g) => (
-              <LayerGroupFolder
-                key={g.id}
-                id={g.id}
-                name={g.name}
-                layerCount={g.layerCount}
-                visibilityOverrides={visibilityOverrides}
-                onToggleVisible={onToggleVisible}
-                onOpenTable={onOpenTable}
-              />
-            ))
-          ) : (
-            <Text size="xs" c="dimmed" ta="center" py="md">
-              Nenhum grupo de camadas publicado.
-            </Text>
-          )}
-        </Stack>
-      </ScrollArea>
+      )}
     </Stack>
   );
 }

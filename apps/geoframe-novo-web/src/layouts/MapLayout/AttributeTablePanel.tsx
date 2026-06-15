@@ -19,8 +19,13 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
+import { useAuth } from '../../auth/useAuth';
+import { useEffectiveResourceConfig } from '../../catalog/api/effectiveConfig';
 import { useResourceAttributes, useResourceColumns } from '../../catalog/api/resources.api';
-import type { LayerNode } from '../../catalog/types/catalog.types';
+import type { AttributeTableLayer } from '../../catalog/types/catalog.types';
+import type { SearchFilterRule } from '../../catalog/types/resource.types';
+import { fieldLabel, getUserPrincipals, visibleFields } from '../../catalog/utils/fieldVisibility';
+import { describeSearchFilters } from '../../catalog/utils/searchOperators';
 import { ChevronIcon, CloseIcon, SearchIcon, SortIcon } from './icons';
 
 type FeatureBounds = [number, number, number, number];
@@ -31,15 +36,22 @@ export function AttributeTablePanel({
   collapsed,
   onToggleCollapse,
   onClose,
+  extraFilters,
+  viewportBbox,
 }: {
-  layer: LayerNode;
+  layer: AttributeTableLayer;
   map: maplibregl.Map | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onClose: () => void;
+  extraFilters?: SearchFilterRule[] | null;
+  viewportBbox?: [number, number, number, number] | null;
 }) {
   const tableName = layer.resourceId.split('.').slice(1).join('.') || layer.resourceId;
   const columns = useResourceColumns(tableName);
+  const { user } = useAuth();
+  const userPrincipals = getUserPrincipals(user);
+  const effectiveConfig = useEffectiveResourceConfig(layer.resourceId, layer.configProfileId);
 
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
@@ -59,11 +71,13 @@ export function AttributeTablePanel({
     debouncedFilterValue,
     sortColumn,
     sortDirection,
+    extraFilters,
+    viewportBbox,
   );
 
   useEffect(() => {
     setOffset(0);
-  }, [layer.resourceId, limit, filterColumn, debouncedFilterValue, sortColumn, sortDirection]);
+  }, [layer.resourceId, limit, filterColumn, debouncedFilterValue, sortColumn, sortDirection, extraFilters, viewportBbox]);
 
   useEffect(() => {
     setFilterColumn(null);
@@ -72,6 +86,11 @@ export function AttributeTablePanel({
     setFilterValue('');
     setOffset(0);
   }, [layer.resourceId]);
+
+  const allColumns = attributes.data?.columns ?? columns.data?.map((c) => c.name) ?? [];
+  const fields = effectiveConfig.data?.fields ?? {};
+  const securityRules = effectiveConfig.data?.securityRules ?? [];
+  const displayColumns = visibleFields(allColumns, fields, securityRules, userPrincipals, 'table');
 
   function toggleSort(column: string) {
     if (sortColumn !== column) {
@@ -86,6 +105,9 @@ export function AttributeTablePanel({
     setSortColumn(null);
     setSortDirection('asc');
   }
+
+  const hasSearchFilters = !!(extraFilters && extraFilters.length > 0);
+  const fieldLabels = Object.fromEntries(Object.entries(fields).map(([name]) => [name, fieldLabel(fields, name)]));
 
   function zoomTo(bbox: FeatureBounds | undefined | null) {
     if (!map || !bbox) return;
@@ -107,13 +129,26 @@ export function AttributeTablePanel({
   return (
     <Stack gap={0} h="100%">
       <Group justify="space-between" px="sm" py={6} style={{ borderBottom: '1px solid var(--mantine-color-gray-3)' }}>
-        <Group gap="sm">
-          <Text fw={600} size="sm">
-            {layer.label}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {layer.resourceId}
-          </Text>
+        <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+          {hasSearchFilters ? (
+            <>
+              <Text fw={600} size="sm" lineClamp={1}>
+                Tabela de resultados ({layer.label} ({describeSearchFilters(extraFilters!, fieldLabels)}))
+              </Text>
+              <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                Qnt. de Feições: {attributes.data?.total ?? 0}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text fw={600} size="sm">
+                {layer.label}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {layer.resourceId}
+              </Text>
+            </>
+          )}
         </Group>
         <Group gap={4}>
           <ActionIcon
@@ -139,9 +174,9 @@ export function AttributeTablePanel({
             size="xs"
             w={180}
             clearable
-            data={(attributes.data?.columns ?? columns.data?.map((c) => c.name) ?? []).map((name) => ({
+            data={displayColumns.map((name) => ({
               value: name,
-              label: name,
+              label: fieldLabel(fields, name),
             }))}
             value={filterColumn}
             onChange={setFilterColumn}
@@ -206,11 +241,11 @@ export function AttributeTablePanel({
             <Table striped highlightOnHover withTableBorder stickyHeader>
               <Table.Thead>
                 <Table.Tr>
-                  {(attributes.data?.columns ?? []).map((column) => (
+                  {displayColumns.map((column) => (
                     <Table.Th key={column}>
                       <Group gap={6} wrap="nowrap">
                         <Text span fw={600} size="sm">
-                          {column}
+                          {fieldLabel(fields, column)}
                         </Text>
                         <Tooltip
                           label={
@@ -239,7 +274,7 @@ export function AttributeTablePanel({
               <Table.Tbody>
                 {(attributes.data?.rows ?? []).map((row, rowIndex) => (
                   <Table.Tr key={rowIndex}>
-                    {(attributes.data?.columns ?? []).map((column) => (
+                    {displayColumns.map((column) => (
                       <Table.Td key={column}>
                         <Text size="sm" lineClamp={2}>
                           {row[column] == null ? '-' : String(row[column])}

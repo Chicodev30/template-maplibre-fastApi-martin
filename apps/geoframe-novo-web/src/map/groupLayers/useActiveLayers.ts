@@ -14,6 +14,7 @@ export interface ActiveLayer {
   style: LayerStyle;
   minZoom?: number | null;
   maxZoom?: number | null;
+  configProfileId?: number | null;
   filterRules: FilterRule[];
   visible: boolean;
 }
@@ -36,6 +37,7 @@ function flatten(
         style: node.style,
         minZoom: node.minZoom,
         maxZoom: node.maxZoom,
+        configProfileId: node.configProfileId,
         filterRules: node.filterRules,
         visible,
       });
@@ -56,9 +58,12 @@ export function useActiveLayers(visibilityOverrides: Record<string, boolean>): A
   });
 
   const layers: ActiveLayer[] = [];
-  for (const detail of details) {
+  for (let i = 0; i < details.length; i++) {
+    const detail = details[i];
+    const group = visibleGroups[i];
+    const groupVisible = visibilityOverrides[`group:${group.id}`] ?? true;
     if (detail.data) {
-      flatten(detail.data.tree, true, visibilityOverrides, layers);
+      flatten(detail.data.tree, groupVisible, visibilityOverrides, layers);
     }
   }
   return layers;

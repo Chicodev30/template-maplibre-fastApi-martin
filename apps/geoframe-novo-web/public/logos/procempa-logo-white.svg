@@ -1,0 +1,25 @@
+<svg width="400" height="200" viewBox="0 0 400 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .procempa { 
+      font-family: Arial, Helvetica, sans-serif; 
+      font-weight: 800; 
+      font-style: italic; 
+      font-size: 80px; 
+      letter-spacing: -3px;
+    }
+    .slogan { 
+      font-family: Arial, Helvetica, sans-serif; 
+      font-weight: 400; 
+      font-style: italic; 
+      font-size: 40px; 
+      fill: #FFFFFF;
+      opacity: 0.7;
+    }
+  </style>
+  
+  <!-- "procempa" text in white -->
+  <text x="10" y="100" class="procempa" fill="#FFFFFF">procempa</text>
+  
+  <!-- "na tua vida" text in white -->
+  <text x="75" y="150" class="slogan">na tua vida</text>
+</svg>

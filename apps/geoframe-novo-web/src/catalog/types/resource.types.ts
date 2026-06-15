@@ -63,18 +63,74 @@ export interface ResourceConfig {
   excludedFeatures: ExcludedFeature[];
 }
 
+// Perfil de configuracao nomeado (catalogo "Configuracoes"): subconjunto
+// alternativo de campos/seguranca/zoom de um recurso, reutilizavel por
+// qualquer no de camada de um group-layer. Sem perfil = default (todos os
+// campos visiveis em tabela/popup, sem restricao, sem limite de zoom).
+export interface ResourceConfigProfileSummary {
+  id: number;
+  resourceId: string;
+  name: string;
+  updatedAt: string;
+}
+
+export interface ResourceConfigProfileDetail extends ResourceConfigProfileSummary {
+  fields: Record<string, ResourceFieldConfig>;
+  securityRules: ResourceSecurityRule[];
+  minZoom: number | null;
+  maxZoom: number | null;
+}
+
+export interface ResourceConfigProfileInput {
+  resourceId: string;
+  name: string;
+  fields: Record<string, ResourceFieldConfig>;
+  securityRules: ResourceSecurityRule[];
+  minZoom: number | null;
+  maxZoom: number | null;
+}
+
 // GET /catalog/resources/overrides: so os recursos com override configurado.
 export type ResourceOverrides = Record<
   string,
   { bboxOverride: [number, number, number, number] | null; excludedFeatures: ExcludedFeature[] }
 >;
 
+// Regra de filtro avancado (painel "Buscar"), enviada ao backend como JSON
+// no parametro `filters` de /attributes.
+export interface SearchFilterRule {
+  column: string;
+  operator: string;
+  value?: string;
+  value2?: string;
+  values?: string[];
+}
+
 export interface ResourceAttributes {
   resourceId: string;
   limit: number;
   offset: number;
+  total: number;
   rows: Array<Record<string, unknown> & { __bbox?: [number, number, number, number] | null }>;
   columns: string[];
+}
+
+// GET /catalog/resources/keyword-search: busca por palavra-chave em todas as
+// colunas de texto de cada tabela (painel "Palavra-chave" do menu principal).
+export interface KeywordSearchResult {
+  resourceId: string;
+  layerLabel: string;
+  row: Record<string, unknown>;
+  matches: Record<string, unknown>;
+  bbox: [number, number, number, number] | null;
+}
+
+export interface KeywordSearchResponse {
+  q: string;
+  limit: number;
+  offset: number;
+  total: number;
+  results: KeywordSearchResult[];
 }
 
 // Item da galeria: casamento do catalogo Martin com os metadados do banco.

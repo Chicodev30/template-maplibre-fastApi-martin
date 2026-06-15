@@ -1,2 +1,34 @@
 html, body, #root { height: 100%; margin: 0; }
 body { font-family: system-ui, sans-serif; }
+
+/* Popup de feature: o conteudo do popup ja inclui seu proprio cabecalho
+   e bordas arredondadas, entao removemos o padding/raio padrao do MapLibre. */
+.maplibregl-popup-content {
+  padding: 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Pin saltando: destaque temporario apos o zoom de um resultado da busca
+   por palavra-chave. */
+@keyframes gf-marker-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-14px); }
+}
+
+.gf-bounce-marker {
+  width: 26px;
+  height: 26px;
+  animation: gf-marker-bounce 0.8s ease-in-out 10;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.35));
+}
+
+/* Itens do Menu Principal: borda sutil e hover discreto em cinza. */
+.gf-menu-item {
+  border: 1px solid var(--mantine-color-gray-3);
+  transition: background-color 100ms ease;
+}
+
+.gf-menu-item:hover {
+  background-color: var(--mantine-color-gray-1);
+}

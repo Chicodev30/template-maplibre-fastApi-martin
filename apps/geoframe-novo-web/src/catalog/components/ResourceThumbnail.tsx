@@ -253,7 +253,7 @@ export function ResourceThumbnail({
           layers: ['resource-fill', 'resource-line', 'resource-circle'],
         });
         if (features.length === 0) return;
-        const pk = getFeaturePk(features[0].properties ?? {});
+        const pk = getFeaturePk(features[0]);
         if (pk) onFeatureClick(pk);
       });
     }

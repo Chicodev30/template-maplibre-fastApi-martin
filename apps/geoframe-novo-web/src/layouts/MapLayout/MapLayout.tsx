@@ -1,60 +1,115 @@
-// Layout principal do app de mapa: header (titulo + navegacao), mapa e
-// painel lateral que abre/fecha de acordo com a navegacao escolhida.
-import { useRef, useState } from 'react';
+// Layout principal do app de mapa: header (hamburger, logo, titulo e brasao),
+// menu principal (drawer/flutuante) e painel "Camadas" que abre por cima do mapa.
+import { useMemo, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
-import { AppShell, Group, Paper, Title, UnstyledButton } from '@mantine/core';
+import { AppShell, Burger, Group, Image, Paper, Stack, Text } from '@mantine/core';
 import { env } from '../../app/env';
+import { useAuth } from '../../auth/useAuth';
 import { MapView } from '../../map/MapView';
 import { useActiveLayers } from '../../map/groupLayers/useActiveLayers';
+import { useEffectiveResourceConfigs } from '../../catalog/api/effectiveConfig';
 import { useResourceOverrides } from '../../catalog/api/resources.api';
-import type { LayerNode } from '../../catalog/types/catalog.types';
+import { getUserPrincipals } from '../../catalog/utils/fieldVisibility';
+import type { AttributeTableLayer, LayerNode } from '../../catalog/types/catalog.types';
+import type { SearchFilterRule } from '../../catalog/types/resource.types';
 import { LeftSidebar } from './LeftSidebar';
+import { LegendsPanel, type LegendOverride } from './LegendsPanel';
 import { AttributeTablePanel } from './AttributeTablePanel';
-import { LayerIcon } from './icons';
+import { MainMenu } from './MainMenu';
+import { SearchPanel } from './SearchPanel';
+import { AddressSearchPanel } from './AddressSearchPanel';
+import { KeywordSearchPanel } from './KeywordSearchPanel';
+import { LocateCoordinatePanel } from './LocateCoordinatePanel';
+import { FileExplorerModal } from './FileExplorerModal';
+import { FloatingPanel } from './FloatingPanel';
+import { PrintPanel } from './PrintPanel';
+import { BasemapPanel } from './BasemapPanel';
+import { AddressIcon, BasemapIcon, KeywordIcon, LayerIcon, LegendIcon, LocateIcon, PrintIcon, SearchIcon } from './icons';
+import { DEFAULT_BASEMAP_ID } from '../../map/maplibre/basemaps';
 
-type PanelKey = 'camadas';
-
-const PANEL_WIDTH = 280;
+type View =
+  | 'menu'
+  | 'camadas'
+  | 'legendas'
+  | 'search'
+  | 'buscarEndereco'
+  | 'palavraChave'
+  | 'localizarCoordenada'
+  | 'imprimir'
+  | 'mapaBase'
+  | null;
 
 export function MapLayout() {
-  const [activePanel, setActivePanel] = useState<PanelKey | null>(null);
+  const [view, setView] = useState<View>(null);
   const [visibilityOverrides, setVisibilityOverrides] = useState<Record<string, boolean>>({});
-  const [tableLayer, setTableLayer] = useState<LayerNode | null>(null);
+  const [legendOverrides, setLegendOverrides] = useState<Record<string, LegendOverride>>({});
+  const [tableLayer, setTableLayer] = useState<LayerNode | AttributeTableLayer | null>(null);
   const [tableCollapsed, setTableCollapsed] = useState(false);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const activeLayers = useActiveLayers(visibilityOverrides);
+  const [searchFilters, setSearchFilters] = useState<SearchFilterRule[] | null>(null);
+  const [searchBbox, setSearchBbox] = useState<[number, number, number, number] | null>(null);
+  const [map, setMap] = useState<maplibregl.Map | null>(null);
+  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
+  const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
+  const catalogActiveLayers = useActiveLayers(visibilityOverrides);
+  const activeLayers = useMemo(
+    () =>
+      catalogActiveLayers.map((layer) => {
+        const override = legendOverrides[layer.id];
+        if (!override) return layer;
+        return {
+          ...layer,
+          style: {
+            ...layer.style,
+            opacity: override.opacity ?? layer.style.opacity,
+            label: {
+              ...layer.style.label,
+              enabled: override.labelVisible ?? layer.style.label.enabled,
+            },
+          },
+        };
+      }),
+    [catalogActiveLayers, legendOverrides],
+  );
   const resourceOverrides = useResourceOverrides();
-
-  function togglePanel(panel: PanelKey) {
-    setActivePanel((current) => (current === panel ? null : panel));
-  }
+  const fieldConfigsByLayerId = useEffectiveResourceConfigs(activeLayers);
+  const { user } = useAuth();
+  const userPrincipals = getUserPrincipals(user);
 
   function toggleVisible(id: string, visible: boolean) {
     setVisibilityOverrides((current) => ({ ...current, [id]: visible }));
   }
 
+  function setLegendOpacity(layerId: string, opacity: number) {
+    setLegendOverrides((current) => ({ ...current, [layerId]: { ...current[layerId], opacity } }));
+  }
+
+  function setLegendLabelVisible(layerId: string, labelVisible: boolean) {
+    setLegendOverrides((current) => ({ ...current, [layerId]: { ...current[layerId], labelVisible } }));
+  }
+
   return (
-    <AppShell header={{ height: 44 }}>
+    <AppShell header={{ height: 56 }}>
       <AppShell.Header withBorder>
-        <Group h="100%" px="sm" gap="lg" wrap="nowrap">
-          <Title order={5} fw={700} c="blue.7">
-            {env.appTitle}
-          </Title>
-          <Group gap={4}>
-            <UnstyledButton
-              onClick={() => togglePanel('camadas')}
-              px={8}
-              py={4}
-              fz="xs"
-              fw={500}
-              c={activePanel === 'camadas' ? 'blue.7' : 'gray.7'}
-              bg={activePanel === 'camadas' ? 'blue.0' : 'transparent'}
-              style={{ borderRadius: 4, display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <LayerIcon />
-              Camadas
-            </UnstyledButton>
+        <Group h="100%" px="sm" gap="sm" wrap="nowrap" justify="space-between">
+          <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+            <Burger
+              opened={view !== null}
+              onClick={() => setView((v) => (v === null ? 'menu' : null))}
+              size="sm"
+              aria-label="Abrir menu"
+            />
+            <Image src="/logos/logo_app.png" alt="" h={32} w="auto" fit="contain" />
+            <Stack gap={0} style={{ minWidth: 0 }}>
+              <Text fw={700} size="sm" c="blue.7" lineClamp={1}>
+                {env.appTitle}
+              </Text>
+              <Text size="xs" c="dimmed" lineClamp={1} visibleFrom="sm">
+                {env.appSubtitle}
+              </Text>
+            </Stack>
           </Group>
+
+          <Image src="/logos/brasao_prefeitura.png" alt="" h={36} w="auto" fit="contain" />
         </Group>
       </AppShell.Header>
 
@@ -62,34 +117,149 @@ export function MapLayout() {
         <MapView
           activeLayers={activeLayers}
           resourceOverrides={resourceOverrides.data}
-          onMapReady={(map) => (mapRef.current = map)}
+          fieldConfigsByLayerId={fieldConfigsByLayerId}
+          userPrincipals={userPrincipals}
+          basemapId={basemapId}
+          onMapReady={setMap}
         />
 
-        {activePanel === 'camadas' && (
-          <Paper
-            withBorder
-            shadow="md"
-            radius="md"
-            style={{
-              position: 'fixed',
-              top: 'calc(var(--app-shell-header-offset, 0px) + 8px)',
-              left: 8,
-              width: PANEL_WIDTH,
-              height: 'calc(100vh - var(--app-shell-header-offset, 0px) - 16px)',
-              zIndex: 190,
-              overflow: 'hidden',
-            }}
+        <MainMenu
+          opened={view === 'menu'}
+          onClose={() => setView(null)}
+          onOpenCamadas={() => setView('camadas')}
+          onOpenLegendas={() => setView('legendas')}
+          onOpenBuscar={() => setView('search')}
+          onOpenBuscarEndereco={() => setView('buscarEndereco')}
+          onOpenPalavraChave={() => setView('palavraChave')}
+          onOpenLocalizarCoordenada={() => setView('localizarCoordenada')}
+          onOpenExploradorArquivos={() => {
+            setView(null);
+            setFileExplorerOpen(true);
+          }}
+          onOpenImprimir={() => setView('imprimir')}
+          onOpenMapaBase={() => setView('mapaBase')}
+        />
+
+        <FileExplorerModal opened={fileExplorerOpen} onClose={() => setFileExplorerOpen(false)} />
+
+        {view === 'camadas' && (
+          <FloatingPanel
+            title="Camadas"
+            icon={<LayerIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
           >
             <LeftSidebar
-              onClose={() => setActivePanel(null)}
               visibilityOverrides={visibilityOverrides}
               onToggleVisible={toggleVisible}
               onOpenTable={(node) => {
                 setTableLayer(node);
                 setTableCollapsed(false);
+                setSearchFilters(null);
+                setSearchBbox(null);
               }}
             />
-          </Paper>
+          </FloatingPanel>
+        )}
+
+        {view === 'legendas' && (
+          <FloatingPanel
+            title="Legendas"
+            icon={<LegendIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={320}
+          >
+            <LegendsPanel
+              visibilityOverrides={visibilityOverrides}
+              legendOverrides={legendOverrides}
+              onOpacityChange={setLegendOpacity}
+              onLabelVisibleChange={setLegendLabelVisible}
+            />
+          </FloatingPanel>
+        )}
+
+        {view === 'search' && (
+          <FloatingPanel
+            title="Buscar"
+            icon={<SearchIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={340}
+          >
+            <SearchPanel
+              activeLayers={activeLayers}
+              fieldConfigsByLayerId={fieldConfigsByLayerId}
+              map={map}
+              onSearch={({ layer, filters, bbox }) => {
+                setTableLayer(layer);
+                setTableCollapsed(false);
+                setSearchFilters(filters);
+                setSearchBbox(bbox);
+                setView(null);
+              }}
+            />
+          </FloatingPanel>
+        )}
+
+        {view === 'buscarEndereco' && (
+          <FloatingPanel
+            title="Buscar endereço"
+            icon={<AddressIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={340}
+          >
+            <AddressSearchPanel map={map} />
+          </FloatingPanel>
+        )}
+
+        {view === 'palavraChave' && (
+          <FloatingPanel
+            title="Busca por palavra-chave"
+            icon={<KeywordIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={340}
+          >
+            <KeywordSearchPanel activeLayers={activeLayers} map={map} />
+          </FloatingPanel>
+        )}
+
+        {view === 'localizarCoordenada' && (
+          <FloatingPanel
+            title="Localizar Coordenada"
+            icon={<LocateIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={300}
+          >
+            <LocateCoordinatePanel map={map} />
+          </FloatingPanel>
+        )}
+
+        {view === 'imprimir' && (
+          <FloatingPanel
+            title="Imprimir mapa"
+            icon={<PrintIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={300}
+          >
+            <PrintPanel map={map} activeLayers={activeLayers} />
+          </FloatingPanel>
+        )}
+
+        {view === 'mapaBase' && (
+          <FloatingPanel
+            title="Mapas base"
+            icon={<BasemapIcon />}
+            onBack={() => setView('menu')}
+            onClose={() => setView(null)}
+            width={280}
+          >
+            <BasemapPanel basemapId={basemapId} onChange={setBasemapId} />
+          </FloatingPanel>
         )}
 
         {tableLayer && (
@@ -99,7 +269,7 @@ export function MapLayout() {
             radius="md"
             style={{
               position: 'fixed',
-              left: PANEL_WIDTH + 16,
+              left: 8,
               right: 8,
               bottom: 8,
               height: tableCollapsed ? 44 : 320,
@@ -110,10 +280,16 @@ export function MapLayout() {
           >
             <AttributeTablePanel
               layer={tableLayer}
-              map={mapRef.current}
+              map={map}
               collapsed={tableCollapsed}
               onToggleCollapse={() => setTableCollapsed((c) => !c)}
-              onClose={() => setTableLayer(null)}
+              onClose={() => {
+                setTableLayer(null);
+                setSearchFilters(null);
+                setSearchBbox(null);
+              }}
+              extraFilters={searchFilters}
+              viewportBbox={searchBbox}
             />
           </Paper>
         )}

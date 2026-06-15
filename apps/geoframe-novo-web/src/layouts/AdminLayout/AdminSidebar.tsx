@@ -32,6 +32,11 @@ const groups: NavGroup[] = [
       { label: 'Papéis', to: '/admin/social/roles' },
     ],
   },
+  {
+    label: 'Armazenamento',
+    basePath: '/admin/storage',
+    items: [{ label: 'Buckets (MinIO)', to: '/admin/storage' }],
+  },
 ];
 
 export function AdminSidebar() {
