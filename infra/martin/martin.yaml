@@ -16,4 +16,4 @@ postgres:
       id_columns: [id, gid, ogc_fid]
       clip_geom: true
       buffer: 64
-      extent: 4096
+      extent: 2048

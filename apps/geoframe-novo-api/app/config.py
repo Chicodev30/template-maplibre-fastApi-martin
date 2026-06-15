@@ -39,6 +39,32 @@ class Settings(BaseSettings):
 
     martin_internal_url: str = "http://geoframe-martin:3000"
 
+    arcgis_find_address_base_url: str = (
+        "https://mapaspoa-des-2020.procempa.com.br/arcgis/rest/services/"
+        "GEOCODE/TMPOA_CAT_COD_NOME_COMP_PRO/GeocodeServer/findAddressCandidates"
+    )
+    cdlrest_search_base_url: str = "https://cdlrest.procempa.com.br/cdlrest/rest/query/endereco"
+    nominatim_search_base_url: str = "https://nominatim.openstreetmap.org/search"
+    porto_alegre_viewbox: str = "-51.30,-29.90,-51.01,-30.25"
+
+    nominatim_reverse_base_url: str = "https://nominatim.openstreetmap.org/reverse"
+
+    # Explorador de arquivos: middleware para os buckets MinIO.
+    minio_endpoint: str = "mapaspoa-minio.procempa.com.br"
+    minio_access_key: str = "mapaspoa"
+    minio_secret_key: str = Field(default="", repr=False)
+    minio_secure: bool = True
+
+    @property
+    def arcgis_reverse_geocode_base_url(self) -> str:
+        # Mesmo locator do forward geocoding (findAddressCandidates), que
+        # retorna Address/Neighborhood/Postal (o locator CODIGO de
+        # TM_POA_CAT_COD_NOME_COMP so retorna o codigo da rua).
+        return self.arcgis_find_address_base_url.replace("/findAddressCandidates", "/reverseGeocode")
+
+    # Limite de tamanho para upload de arquivos vetoriais (novo recurso).
+    upload_max_size_mb: int = 200
+
     keycloak_client_id: str = KEYCLOAK_CLIENT_ID
     keycloak_issuer: str = KEYCLOAK_ISSUER
     keycloak_jwks_url: str = KEYCLOAK_JWKS_URL

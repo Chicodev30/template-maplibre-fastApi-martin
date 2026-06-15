@@ -12,7 +12,9 @@ dependencies = [
   "python-jose[cryptography]",
   "httpx",
   "loguru",
-  "sqladmin"
+  "sqladmin",
+  "minio",
+  "python-multipart"
 ]
 
 [tool.pytest.ini_options]

@@ -60,6 +60,7 @@ class TreeNode(BaseModel):
     resourceId: str | None = None
     minZoom: int | None = None
     maxZoom: int | None = None
+    configProfileId: int | None = None
     filterRules: list[FilterRule] = Field(default_factory=list)
     sqlFilter: str | None = None
     style: LayerStyle | None = None
