@@ -4,7 +4,9 @@
 import json
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
@@ -15,6 +17,7 @@ from app.dependencies import require_role
 from app.models.resource import ResourceConfig
 from app.models.role import AppRole
 from app.models.user import User
+from app.services import geoserver_service
 from app.services.vector_upload import ingest_vector_file
 
 router = APIRouter(prefix="/catalog/resources", tags=["resources"])
@@ -549,18 +552,30 @@ def get_resource_config(
     source_id: str,
     db: Session = Depends(get_session),
 ) -> ResourceConfigOut:
-    schema_name, table_name = _ensure_resource_exists(source_id, db)
+    # Camadas do GeoServer (workspace != schema PostGIS) nao passam pela validacao de
+    # geometry_columns — retorna config salva ou defaults sem consultar o banco espacial.
+    workspace = source_id.split(".", 1)[0] if "." in source_id else ""
+    is_geoserver = workspace == settings.geoserver_workspace
+
+    if not is_geoserver:
+        schema_name, table_name = _ensure_resource_exists(source_id, db)
+
     config = db.execute(
         select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
     ).scalar_one_or_none()
     if config is None:
-        geom_column = db.execute(
-            _GEOM_COLUMN_SQL,
-            {"schema": schema_name, "table": table_name},
-        ).scalar_one_or_none()
+        if is_geoserver:
+            table_name = source_id.split(".", 1)[1] if "." in source_id else source_id
+            layer_label = table_name
+        else:
+            geom_column = db.execute(
+                _GEOM_COLUMN_SQL,
+                {"schema": schema_name, "table": table_name},
+            ).scalar_one_or_none()
+            layer_label = f"{table_name}.{geom_column or 'geom'}"
         return ResourceConfigOut(
             resourceId=source_id,
-            layerLabel=f"{table_name}.{geom_column or 'geom'}",
+            layerLabel=layer_label,
             fields={},
             securityRules=[],
             bboxOverride=None,
@@ -583,7 +598,9 @@ def save_resource_config(
     _admin: User = Depends(require_role(AppRole.admin)),
     db: Session = Depends(get_session),
 ) -> ResourceConfigOut:
-    _ensure_resource_exists(source_id, db)
+    workspace = source_id.split(".", 1)[0] if "." in source_id else ""
+    if workspace != settings.geoserver_workspace:
+        _ensure_resource_exists(source_id, db)
     config = db.execute(
         select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
     ).scalar_one_or_none()
@@ -607,8 +624,46 @@ def save_resource_config(
     )
 
 
+@router.post("/{source_id}/thumbnail", status_code=204)
+def save_thumbnail(
+    source_id: str,
+    payload: dict[str, str],
+    _admin: User = Depends(require_role(AppRole.admin)),
+    db: Session = Depends(get_session),
+) -> None:
+    thumbnail = payload.get("thumbnail", "")
+    config = db.execute(
+        select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
+    ).scalar_one_or_none()
+    if config is None:
+        config = ResourceConfig(
+            resource_id=source_id,
+            layer_label=source_id.split(".", 1)[-1],
+            fields={},
+            security_rules=[],
+            excluded_features=[],
+        )
+        db.add(config)
+    config.thumbnail = thumbnail
+    db.commit()
+
+
+@router.get("/{source_id}/thumbnail")
+def get_thumbnail(source_id: str, db: Session = Depends(get_session)) -> Response:
+    config = db.execute(
+        select(ResourceConfig).where(ResourceConfig.resource_id == source_id)
+    ).scalar_one_or_none()
+    if not config or not config.thumbnail:
+        raise HTTPException(status_code=404, detail="Sem thumbnail salvo")
+    # data:image/png;base64,<b64>
+    header, b64data = config.thumbnail.split(",", 1)
+    import base64
+    img_bytes = base64.b64decode(b64data)
+    return Response(content=img_bytes, media_type="image/png")
+
+
 @router.get("/{source_id}/attributes", response_model=ResourceAttributes)
-def get_resource_attributes(
+async def get_resource_attributes(
     source_id: str,
     limit: int = 50,
     offset: int = 0,
@@ -621,6 +676,29 @@ def get_resource_attributes(
     sort_direction: str = "asc",
     db: Session = Depends(get_session),
 ) -> ResourceAttributes:
+    workspace = source_id.split(".", 1)[0] if "." in source_id else ""
+    if workspace == settings.geoserver_workspace:
+        try:
+            result = await geoserver_service.get_attributes(
+                source_id,
+                limit=max(1, min(limit, 200)),
+                offset=max(0, offset),
+                filter_column=filter_column,
+                filter_value=filter_value,
+                sort_column=sort_column,
+                sort_direction=sort_direction,
+            )
+        except (httpx.HTTPError, Exception) as exc:
+            raise HTTPException(status_code=502, detail=f"Erro ao consultar WFS: {exc}") from exc
+        return ResourceAttributes(
+            resourceId=source_id,
+            limit=limit,
+            offset=offset,
+            total=result["total"],
+            rows=result["rows"],
+            columns=result["columns"],
+        )
+
     schema_name, table_name = _ensure_resource_exists(source_id, db)
     limit = max(1, min(limit, 200))
     offset = max(0, offset)

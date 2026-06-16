@@ -2,7 +2,7 @@
 // Tudo passa pela API FastAPI (gateway do Martin); o front nunca fala direto
 // com o Martin.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPostForm, apiPut } from '../../app/http';
+import { apiGet, apiPost, apiPostForm, apiPut } from '../../app/http';
 import type {
   CatalogResource,
   KeywordSearchResponse,
@@ -16,18 +16,21 @@ import type {
   TileJson,
 } from '../types/resource.types';
 
-// Deriva o item da galeria a partir do source id e da description do Martin.
-// id: "schema.table" | description: "schema.table.geom"
+// Deriva o item da galeria a partir do source id e da description.
+// id: "schema.table" | description: "schema.table[.geom_column]"
+// Quando description nao tem terceira parte (fontes GeoServer), title = tableName.
 function toResource(id: string, description: string): CatalogResource {
   const [schemaName, ...rest] = id.split('.');
   const tableName = rest.join('.') || id;
-  const geometryColumn = description.split('.').slice(2).join('.') || 'geom';
+  const descParts = description.split('.');
+  const geometryColumn = descParts.slice(2).join('.') || 'geom';
+  const hasExplicitGeom = descParts.length > 2;
   return {
     id,
     schemaName,
     tableName,
     geometryColumn,
-    title: `${tableName}.${geometryColumn}`,
+    title: hasExplicitGeom ? `${tableName}.${geometryColumn}` : tableName,
   };
 }
 
@@ -212,6 +215,17 @@ export function useKeywordSearch(
     },
     placeholderData: (previous) => previous,
   });
+}
+
+export function useSaveThumbnail(sourceId: string) {
+  return useMutation({
+    mutationFn: (thumbnail: string) =>
+      apiPost<void>(`/catalog/resources/${encodeURIComponent(sourceId)}/thumbnail`, { thumbnail }),
+  });
+}
+
+export function thumbnailUrl(sourceId: string): string {
+  return `/api/catalog/resources/${encodeURIComponent(sourceId)}/thumbnail`;
 }
 
 // Upload de arquivo vetorial -> nova tabela no schema de recursos (Martin

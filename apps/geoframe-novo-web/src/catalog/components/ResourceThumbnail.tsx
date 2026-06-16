@@ -2,13 +2,19 @@
 // Inicializa apenas quando o card entra na viewport, para nao estourar o
 // limite de contextos WebGL do navegador (~16) quando ha muitas tabelas.
 import { useEffect, useRef, useState } from 'react';
+
+// Semaforo global: limita o numero de contextos WebGL simultaneos.
+// Browsers tipicamente suportam ~16; usamos 10 para deixar margem para
+// outros mapas na pagina (ex.: o mapa principal do app).
+const MAX_GL_CONTEXTS = 10;
+let activeGlContexts = 0;
 import maplibregl from 'maplibre-gl';
 import { Box, Center, Loader, Text } from '@mantine/core';
 import { env } from '../../app/env';
 import { createOsmStyle } from '../../map/maplibre/createMapStyle';
 import { getFeaturePk } from '../../map/groupLayers/featureInteraction';
 import { labelPlacement } from '../../map/groupLayers/labelPlacement';
-import { useTileJson } from '../api/resources.api';
+import { useTileJson, thumbnailUrl } from '../api/resources.api';
 import type { LayerStyle } from '../types/style.types';
 
 export type FeatureRef = {
@@ -92,7 +98,27 @@ export function ResourceThumbnail({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [visible, setVisible] = useState(!lazy);
-  const { data: tj, isLoading, isError } = useTileJson(visible ? sourceId : '');
+  // Mapas interativos (detail page) sempre usam live map; thumbnails (galeria)
+  // tentam primeiro a imagem estatica para economizar contextos WebGL.
+  // null=verificando, false=sem thumb salva, string=URL da thumb
+  const [staticThumb, setStaticThumb] = useState<string | null | false>(interactive ? false : null);
+  const { data: tj, isLoading, isError } = useTileJson(
+    visible && staticThumb === false ? sourceId : '',
+  );
+
+  // Verifica se ha thumbnail estatica salva (apenas para thumbnails nao-interativos).
+  useEffect(() => {
+    if (!visible || interactive) return;
+    const url = thumbnailUrl(sourceId);
+    fetch(url)
+      .then(async (r) => {
+        // Verifica content-type para nao confundir resposta HTML (ex.: NGINX 404->index.html) com imagem
+        const ct = r.headers.get('content-type') ?? '';
+        if (r.ok && ct.includes('image/')) setStaticThumb(url);
+        else setStaticThumb(false);
+      })
+      .catch(() => setStaticThumb(false));
+  }, [visible, sourceId, interactive]);
 
   // Detecta entrada na viewport.
   useEffect(() => {
@@ -111,10 +137,12 @@ export function ResourceThumbnail({
     return () => obs.disconnect();
   }, [lazy]);
 
-  // Cria o mapa e adiciona a camada vetorial quando o TileJSON chega.
+  // Cria o mapa quando TileJSON chega e nao ha thumbnail estatica.
   useEffect(() => {
-    if (!visible || !tj || !containerRef.current || mapRef.current) return;
+    if (!visible || staticThumb === null || staticThumb !== false || !tj || !containerRef.current || mapRef.current) return;
+    if (activeGlContexts >= MAX_GL_CONTEXTS) return;
 
+    activeGlContexts++;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: createOsmStyle(),
@@ -129,7 +157,10 @@ export function ResourceThumbnail({
         type: 'vector',
         tiles: [`${env.apiBaseUrl}/tiles/${sourceId}/{z}/{x}/{y}`],
       });
-      const common = { source: 'resource', 'source-layer': sourceId } as const;
+      // GeoServer GWC embeds o nome da camada sem prefixo de workspace no PBF.
+      // Ex.: sourceId "teste.alagados" -> source-layer "alagados".
+      const sourceLayer = sourceId.includes('.') ? sourceId.split('.').slice(1).join('.') : sourceId;
+      const common = { source: 'resource', 'source-layer': sourceLayer } as const;
       const exclusion = hideExcluded ? exclusionFilter(excludedFeatures) : undefined;
       const fillColor = previewStyle?.color ?? '#1971c2';
       const fillOpacity = previewStyle?.opacity ?? 0.35;
@@ -262,6 +293,7 @@ export function ResourceThumbnail({
     return () => {
       map.remove();
       mapRef.current = null;
+      activeGlContexts--;
     };
     // boundsOverride/excludedFeatures/hideExcluded/previewStyle sao usados apenas
     // na criacao inicial do mapa; atualizacoes posteriores sao tratadas pelos
@@ -369,12 +401,19 @@ export function ResourceThumbnail({
 
   return (
     <Box ref={containerRef} pos="relative" h={height} bg="gray.1" style={{ overflow: 'hidden' }}>
-      {visible && isLoading && (
+      {staticThumb && (
+        <img
+          src={staticThumb}
+          alt="preview"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      )}
+      {visible && staticThumb === false && isLoading && (
         <Center h="100%">
           <Loader size="sm" />
         </Center>
       )}
-      {isError && (
+      {staticThumb === false && isError && (
         <Center h="100%">
           <Text size="xs" c="dimmed">
             sem preview

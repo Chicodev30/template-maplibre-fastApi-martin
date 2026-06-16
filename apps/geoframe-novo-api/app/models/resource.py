@@ -18,6 +18,7 @@ class ResourceConfig(Base):
     security_rules: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     bbox_override: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     excluded_features: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    thumbnail: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -41,6 +41,7 @@ import {
   useResourceConfig,
   useResourceMetadata,
   useSaveResourceConfig,
+  useSaveThumbnail,
 } from '../../catalog/api/resources.api';
 import {
   ResourceThumbnail,
@@ -570,6 +571,7 @@ export function ResourceDetailPage() {
   const columns = useResourceColumns(resource?.tableName ?? null);
   const savedConfig = useResourceConfig(resource?.id ?? null);
   const saveConfig = useSaveResourceConfig(resource?.id ?? '');
+  const saveThumbnail = useSaveThumbnail(resource?.id ?? '');
   const [config, setConfig] = useState<ResourceConfig | null>(null);
   const [attributesOpened, setAttributesOpened] = useState(false);
   const [attributeLimit, setAttributeLimit] = useState(50);
@@ -884,11 +886,27 @@ export function ResourceDetailPage() {
             onFeatureClick={handlePreviewFeatureClick}
             onMapReady={setPreviewMap}
           />
-          <Text size="xs" c="dimmed" mt="xs">
-            Clique numa feicao no preview para selecioná-la (mesma selecao da
-            tabela de atributos, em verde). Feicoes excluidas do catalogo
-            aparecem em vermelho.
-          </Text>
+          <Group mt="xs" justify="space-between" align="flex-start">
+            <Text size="xs" c="dimmed">
+              Clique numa feicao no preview para selecioná-la (mesma selecao da
+              tabela de atributos, em verde). Feicoes excluidas do catalogo
+              aparecem em vermelho.
+            </Text>
+            <Button
+              size="xs"
+              variant="default"
+              disabled={!previewMap}
+              loading={saveThumbnail.isPending}
+              onClick={() => {
+                if (!previewMap) return;
+                const canvas = previewMap.getCanvas();
+                const dataUrl = canvas.toDataURL('image/png');
+                saveThumbnail.mutate(dataUrl);
+              }}
+            >
+              Salvar como preview
+            </Button>
+          </Group>
         </Card>
 
         <Card withBorder radius="md" padding="md">

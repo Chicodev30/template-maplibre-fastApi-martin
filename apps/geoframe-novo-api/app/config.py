@@ -37,7 +37,12 @@ class Settings(BaseSettings):
     api_key_id: str = ""
     api_key_secret: str = Field(default="", repr=False)
 
-    martin_internal_url: str = "http://geoframe-martin:3000"
+    # GeoServer GWC visto pela API (substitui o Martin para o teste de performance).
+    geoserver_base_url: str = "http://localhost:8083/geoserver"
+    geoserver_workspace: str = "teste"
+    geoserver_user: str = "admin"
+    geoserver_password: str = Field(default="geoserver", repr=False)
+    geoserver_gridset: str = "EPSG:900913"
 
     arcgis_find_address_base_url: str = (
         "https://mapaspoa-des-2020.procempa.com.br/arcgis/rest/services/"

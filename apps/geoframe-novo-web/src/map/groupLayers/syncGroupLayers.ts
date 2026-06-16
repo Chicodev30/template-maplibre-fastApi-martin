@@ -118,7 +118,11 @@ export function syncGroupLayers(
       });
     }
 
-    const common = { source: sourceId, 'source-layer': layer.resourceId, minzoom, maxzoom } as const;
+    // GeoServer GWC embeds layer name without workspace prefix inside PBF tiles.
+    const sourceLayer = layer.resourceId.includes('.')
+      ? layer.resourceId.split('.').slice(1).join('.')
+      : layer.resourceId;
+    const common = { source: sourceId, 'source-layer': sourceLayer, minzoom, maxzoom } as const;
     const filterProp = filter ? { filter } : {};
 
     // O bucket de 'circle' do MapLibre desenha um círculo em CADA vértice da geometria,
