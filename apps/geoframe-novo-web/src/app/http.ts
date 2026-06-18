@@ -7,6 +7,10 @@ export function setApiAuthHeaders(headers: Record<string, string>) {
   authHeaders = headers;
 }
 
+export function getApiAuthHeaders(): Record<string, string> {
+  return authHeaders;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {

@@ -2,7 +2,7 @@
 // tamanho de pagina configuraveis), com opcao de incluir uma legenda das
 // camadas visiveis na view atual.
 import { useEffect, useState } from 'react';
-import type maplibregl from 'maplibre-gl';
+import type Map from 'ol/Map';
 import { Alert, Button, Checkbox, Group, Modal, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core';
 import { useResourceMetadata } from '../../catalog/api/resources.api';
 import { geometryKind } from './LegendsPanel';
@@ -13,7 +13,7 @@ import { printMap, PRINT_DPI_OPTIONS, PRINT_PAGE_SIZES, type PrintLegendItem, ty
 const PAPER_SIZE_OPTIONS = Object.keys(PRINT_PAGE_SIZES).map((value) => ({ value, label: value }));
 const DPI_LABELS: Record<number, string> = { 96: '96 DPI', 150: '150 DPI (Padrão)', 300: '300 DPI (Alta qualidade)' };
 
-export function PrintPanel({ map, activeLayers }: { map: maplibregl.Map | null; activeLayers: ActiveLayer[] }) {
+export function PrintPanel({ map, activeLayers }: { map: Map | null; activeLayers: ActiveLayer[] }) {
   const [title, setTitle] = useState('Mapa');
   const [dpi, setDpi] = useState(150);
   const [orientation, setOrientation] = useState<PrintOrientation>('landscape');
@@ -27,7 +27,7 @@ export function PrintPanel({ map, activeLayers }: { map: maplibregl.Map | null; 
   const metadata = useResourceMetadata();
 
   const getVisibleLegends = (): PrintLegendItem[] => {
-    const zoom = map?.getZoom() ?? null;
+    const zoom = map?.getView().getZoom() ?? null;
 
     return activeLayers
       .filter((layer) => {
@@ -37,12 +37,7 @@ export function PrintPanel({ map, activeLayers }: { map: maplibregl.Map | null; 
           const maxZoom = layer.maxZoom ?? 24;
           if (zoom < minZoom || zoom >= maxZoom) return false;
         }
-        if (!map) return true;
-        const renderedLayerIds = [`gl-fill-${layer.id}`, `gl-line-${layer.id}`, `gl-circle-${layer.id}`].filter(
-          (id) => map.getLayer(id),
-        );
-        if (renderedLayerIds.length === 0) return true;
-        return map.queryRenderedFeatures(undefined, { layers: renderedLayerIds }).length > 0;
+        return true;
       })
       .map((layer) => ({
         id: layer.id,

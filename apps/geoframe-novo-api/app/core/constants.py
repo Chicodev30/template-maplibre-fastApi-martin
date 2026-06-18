@@ -15,7 +15,3 @@ KEYCLOAK_JWKS_URL = f"{KEYCLOAK_ISSUER}/protocol/openid-connect/certs"
 KC_ROLE_VISUALIZADOR = "gfr-visualizador"
 KC_ROLE_ADMIN = "gfr-admin"
 KC_ROLE_CONTRIBUIDOR = "gfr-contribuidor"
-
-# Tile service defaults para GeoServer GWC.
-TILE_DEFAULT_FORMAT = "application/vnd.mapbox-vector-tile"
-TILE_DEFAULT_GRIDSET = "EPSG:900913"

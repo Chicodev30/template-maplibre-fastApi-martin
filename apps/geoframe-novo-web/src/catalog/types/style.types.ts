@@ -28,8 +28,6 @@ export const LABEL_POSITION_OPTIONS: Array<{ value: LabelPosition; label: string
   { value: 'center', label: 'Centro' },
 ];
 
-// Fontstacks disponiveis no provedor de glyphs (demotiles.maplibre.org) - so
-// existem ranges para Noto Sans Regular/Bold; outras fontes retornam 404.
 export const FONT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Noto Sans Regular', label: 'Noto Sans' },
   { value: 'Noto Sans Bold', label: 'Noto Sans (negrito)' },

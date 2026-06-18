@@ -9,6 +9,8 @@ dependencies = [
   "alembic",
   "pydantic-settings",
   "psycopg[binary]",
+  "asyncpg",
+  "sqlalchemy[asyncio]",
   "python-jose[cryptography]",
   "httpx",
   "loguru",

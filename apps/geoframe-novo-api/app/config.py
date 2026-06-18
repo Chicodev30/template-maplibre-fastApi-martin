@@ -29,12 +29,6 @@ class Settings(BaseSettings):
     api_key_id: str = ""
     api_key_secret: str = Field(default="", repr=False)
 
-    # GeoServer GWC visto pela API (substitui o Martin para o teste de performance).
-    geoserver_base_url: str = "http://host.docker.internal:8083/geoserver"
-    geoserver_user: str = "admin"
-    geoserver_password: str = Field(default="geoserver", repr=False)
-    geoserver_gridset: str = "EPSG:900913"
-
     arcgis_find_address_base_url: str = (
         "https://mapaspoa-des-2020.procempa.com.br/arcgis/rest/services/"
         "GEOCODE/TMPOA_CAT_COD_NOME_COMP_PRO/GeocodeServer/findAddressCandidates"
@@ -44,6 +38,11 @@ class Settings(BaseSettings):
     porto_alegre_viewbox: str = "-51.30,-29.90,-51.01,-30.25"
 
     nominatim_reverse_base_url: str = "https://nominatim.openstreetmap.org/reverse"
+
+    # GeoServer: catálogo de camadas disponíveis.
+    geoserver_base_url: str = "http://localhost:8080/geoserver"
+    geoserver_user: str = "admin"
+    geoserver_password: str = Field(default="", repr=False)
 
     # Explorador de arquivos: middleware para os buckets MinIO.
     minio_endpoint: str = "mapaspoa-minio.procempa.com.br"

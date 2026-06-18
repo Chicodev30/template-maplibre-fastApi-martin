@@ -1,7 +1,7 @@
 // Painel "Mapas base": lista minimalista de mapas base disponiveis, com o
 // item atualmente selecionado destacado.
 import { Box, Stack, Text, UnstyledButton } from '@mantine/core';
-import { BASEMAPS } from '../../map/maplibre/basemaps';
+import { BASEMAPS } from '../../map/basemaps';
 import { CheckIcon } from './icons';
 
 export function BasemapPanel({

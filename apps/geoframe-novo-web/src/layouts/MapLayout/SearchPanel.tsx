@@ -2,7 +2,7 @@
 // um campo marcado como "Pesq." no admin. Monta um conjunto de filtros
 // avancados (SearchFilterRule[]) e delega o resultado a tabela de atributos.
 import { useEffect, useState } from 'react';
-import type maplibregl from 'maplibre-gl';
+import type Map from 'ol/Map';
 import { Autocomplete, Button, Checkbox, Group, ScrollArea, Select, Stack, Text, TextInput } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useResourceColumns, useResourceFieldValues } from '../../catalog/api/resources.api';
@@ -73,7 +73,7 @@ export function SearchPanel({
 }: {
   activeLayers: ActiveLayer[];
   fieldConfigsByLayerId: Record<string, EffectiveResourceConfig>;
-  map: maplibregl.Map | null;
+  map: Map | null;
   onSearch: (result: SearchResult) => void;
 }) {
   const searchableLayers = activeLayers.filter((layer) =>

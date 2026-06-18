@@ -1,23 +1,26 @@
-// Componente principal MapLibre + deck.gl.
+// Componente principal do mapa — OpenLayers + OGC API Features.
 import { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { DEFAULT_BASEMAP_ID, getBasemapStyle, getPatchedLibertyStyle } from './maplibre/basemaps';
+import Map from 'ol/Map';
+import View from 'ol/View';
+import TileLayer from 'ol/layer/Tile';
+import Overlay from 'ol/Overlay';
+import { fromLonLat, toLonLat } from 'ol/proj';
+import { ScaleLine, defaults as defaultControls } from 'ol/control';
+import { click } from 'ol/events/condition';
+import Select from 'ol/interaction/Select';
+import type { SelectEvent } from 'ol/interaction/Select';
+import type { Coordinate } from 'ol/coordinate';
+import 'ol/ol.css';
+
+import { DEFAULT_BASEMAP_ID, getBasemapSource } from './basemaps';
 import type { ActiveLayer } from './groupLayers/useActiveLayers';
-import { syncGroupLayers, hiddenFilter, fillFilterFor } from './groupLayers/syncGroupLayers';
-import {
-  buildPopupHtml,
-  getFeatureBounds,
-  getFeaturePk,
-  pkFilter,
-  pointPkFilter,
-  type FeaturePk,
-} from './groupLayers/featureInteraction';
+import { syncGroupLayers } from './groupLayers/syncGroupLayers';
+import { buildPopupHtml, escapeHtml } from './groupLayers/featureInteraction';
 import {
   buildContextMenuHtml,
+  buildIdentifyPopupHtml,
   buildExternalMapModalHtml,
   buildExternalMapOptions,
-  buildIdentifyPopupHtml,
   buildLocationKml,
   downloadTextFile,
   wireExternalMapModalEvents,
@@ -29,7 +32,7 @@ import type { EffectiveResourceConfig } from '../catalog/api/effectiveConfig';
 import type { ResourceOverrides } from '../catalog/types/resource.types';
 
 // Centro de Porto Alegre/RS.
-const PORTO_ALEGRE: [number, number] = [-51.2287, -30.0346];
+const PORTO_ALEGRE = fromLonLat([-51.2287, -30.0346]);
 
 export function MapView({
   activeLayers = [],
@@ -44,110 +47,125 @@ export function MapView({
   fieldConfigsByLayerId?: Record<string, EffectiveResourceConfig>;
   userPrincipals?: string[];
   basemapId?: string;
-  onMapReady?: (map: maplibregl.Map) => void;
+  onMapReady?: (map: Map) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
-  const contextMenuPopupRef = useRef<maplibregl.Popup | null>(null);
-  const identifyPopupRef = useRef<maplibregl.Popup | null>(null);
-  const identifyMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const clickHandlerRef = useRef<((e: maplibregl.MapMouseEvent) => void) | null>(null);
-  const moveHandlerRef = useRef<((e: maplibregl.MapMouseEvent) => void) | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<Overlay | null>(null);
+  const mapRef = useRef<Map | null>(null);
+  const basemapLayerRef = useRef<TileLayer | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Inicializa o mapa.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: getBasemapStyle(basemapId),
-      center: PORTO_ALEGRE,
-      zoom: 11,
+    const basemapLayer = new TileLayer({ source: getBasemapSource(basemapId), zIndex: 0 });
+    basemapLayerRef.current = basemapLayer;
+
+    const popupEl = document.createElement('div');
+    popupEl.style.cssText = 'position:absolute;background:white;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.3);pointer-events:auto;';
+    popupRef.current = popupEl;
+
+    const overlay = new Overlay({ element: popupEl, positioning: 'bottom-center', offset: [0, -4] });
+    overlayRef.current = overlay;
+
+    const map = new Map({
+      target: containerRef.current,
+      layers: [basemapLayer],
+      overlays: [overlay],
+      view: new View({ center: PORTO_ALEGRE, zoom: 11, projection: 'EPSG:3857' }),
+      controls: defaultControls({ attribution: false }).extend([new ScaleLine()]),
     });
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
-    map.addControl(new maplibregl.ScaleControl());
+    // Seleção de feature por clique.
+    const select = new Select({ condition: click });
+    select.on('select', (e: SelectEvent) => {
+      const features = e.selected;
+      if (features.length === 0) {
+        overlay.setPosition(undefined);
+        return;
+      }
 
-    // Alguns estilos (ex: Liberty) referenciam icones de sprite que nao
-    // sao usados nessa aplicacao; registra uma imagem vazia para evitar
-    // o aviso "Image ... could not be loaded" no console.
-    map.on('styleimagemissing', (e) => {
-      if (map.hasImage(e.id)) return;
-      map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
-    });
-
-    map.on('load', () => {
-      setReady(true);
-      onMapReady?.(map);
-    });
-
-    const showExternalMapModal = (state: IdentifyState) => {
-      const locationLabel = state.result?.address || state.result?.label || 'Local';
-      const options = buildExternalMapOptions(state.lon, state.lat, locationLabel);
-
-      const overlay = document.createElement('div');
-      overlay.innerHTML = buildExternalMapModalHtml(options);
-      const el = overlay.firstElementChild as HTMLElement;
-      document.body.appendChild(el);
-
-      const close = () => {
-        el.remove();
-      };
-
-      wireExternalMapModalEvents(el, options, {
-        onClose: close,
-        onOpen: (url) => {
-          window.open(url, '_blank', 'noopener,noreferrer');
-          close();
-        },
-        onDownloadKml: () => {
-          const kml = buildLocationKml(state.lon, state.lat, locationLabel);
-          downloadTextFile('local.kml', kml, 'application/vnd.google-earth.kml+xml');
-          close();
-        },
+      const coord = map.getEventCoordinate((e.mapBrowserEvent as { originalEvent: MouseEvent }).originalEvent);
+      const entries = features.map((f, idx) => {
+        const layerId = f.get('gfLayerId') as string | undefined;
+        const layer = activeLayers.find((l) => l.id === layerId);
+        const props = f.getProperties() as Record<string, unknown>;
+        delete props.geometry;
+        return { label: layer?.label ?? 'Feature', props, idx };
       });
-    };
 
-    const showIdentifyPopup = (lngLat: maplibregl.LngLat) => {
-      identifyMarkerRef.current?.remove();
-      identifyMarkerRef.current = new maplibregl.Marker({ color: '#e03131' }).setLngLat(lngLat).addTo(map);
-
-      identifyPopupRef.current?.remove();
-      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: 'none' })
-        .setLngLat(lngLat)
-        .addTo(map);
-      identifyPopupRef.current = popup;
-
-      const state: IdentifyState = {
-        provider: 'arcgis-procempa',
-        loading: true,
-        error: null,
-        result: null,
-        lon: lngLat.lng,
-        lat: lngLat.lat,
+      let index = 0;
+      const show = () => {
+        const { label, props } = entries[index];
+        const layerId = features[index].get('gfLayerId') as string | undefined;
+        const effectiveConfig = layerId ? fieldConfigsByLayerId?.[layerId] : undefined;
+        const fieldsConfig = effectiveConfig
+          ? { fields: effectiveConfig.fields, securityRules: effectiveConfig.securityRules, principals: userPrincipals }
+          : undefined;
+        const html = buildPopupHtml(label, props, fieldsConfig, { index: index + 1, total: entries.length });
+        popupEl.innerHTML = html;
+        overlay.setPosition(coord);
+        wirePopupEvents();
       };
 
-      const closeIdentify = () => {
-        popup.remove();
-        identifyMarkerRef.current?.remove();
-        identifyMarkerRef.current = null;
-        if (identifyPopupRef.current === popup) identifyPopupRef.current = null;
+      const wirePopupEvents = () => {
+        popupEl.querySelector('.gf-popup-close')?.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          overlay.setPosition(undefined);
+          select.getFeatures().clear();
+        });
+        popupEl.querySelector('.gf-popup-prev')?.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          index = (index - 1 + entries.length) % entries.length;
+          show();
+        });
+        popupEl.querySelector('.gf-popup-next')?.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          index = (index + 1) % entries.length;
+          show();
+        });
+        popupEl.querySelector('.gf-popup-zoom')?.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const geom = features[index].getGeometry();
+          if (geom) {
+            const extent = geom.getExtent();
+            map.getView().fit(extent, { padding: [40, 40, 40, 40], maxZoom: 18, duration: 400 });
+          }
+        });
+      };
+
+      show();
+    });
+    map.addInteraction(select);
+
+    // Menu de contexto (botão direito) com opção de identificar localização.
+    const contextEl = document.createElement('div');
+    contextEl.style.cssText = 'position:absolute;pointer-events:auto;';
+    const contextOverlay = new Overlay({ element: contextEl, positioning: 'top-left' });
+    map.addOverlay(contextOverlay);
+
+    const showIdentifyPopup = (coord: Coordinate) => {
+      const [lon, lat] = toLonLat(coord);
+      const state: IdentifyState = { provider: 'arcgis-procempa', loading: true, error: null, result: null, lon, lat };
+
+      const identEl = document.createElement('div');
+      identEl.style.cssText = 'position:absolute;pointer-events:auto;';
+      const identOverlay = new Overlay({ element: identEl, positioning: 'bottom-left', offset: [0, -4] });
+      map.addOverlay(identOverlay);
+      identOverlay.setPosition(coord);
+
+      const closeIdent = () => {
+        map.removeOverlay(identOverlay);
       };
 
       const render = () => {
-        popup.setHTML(buildIdentifyPopupHtml(state));
-        const el = popup.getElement();
-        if (!el) return;
-        wireIdentifyPopupEvents(el, {
-          onClose: closeIdentify,
-          onProviderChange: (provider) => {
-            state.provider = provider;
-            void load();
-          },
-          onOpenExternal: () => {
-            showExternalMapModal(state);
-          },
+        identEl.innerHTML = buildIdentifyPopupHtml(state);
+        wireIdentifyPopupEvents(identEl, {
+          onClose: closeIdent,
+          onProviderChange: (provider) => { state.provider = provider; void load(); },
+          onOpenExternal: () => { showExternalMapModal(state); },
         });
       };
 
@@ -156,10 +174,10 @@ export function MapView({
         state.error = null;
         render();
         try {
-          state.result = await reverseGeocode(state.provider, state.lon, state.lat);
+          state.result = await reverseGeocode(state.provider, lon, lat);
         } catch (err) {
-          state.result = null;
           state.error = err instanceof Error ? err.message : 'Erro ao identificar local.';
+          state.result = null;
         } finally {
           state.loading = false;
           render();
@@ -170,192 +188,67 @@ export function MapView({
       void load();
     };
 
-    const handleContextMenu = (e: maplibregl.MapMouseEvent) => {
-      e.preventDefault();
-      contextMenuPopupRef.current?.remove();
-
-      const lngLat = e.lngLat;
-      const popup = new maplibregl.Popup({ closeButton: false, maxWidth: 'none' })
-        .setLngLat(lngLat)
-        .setHTML(buildContextMenuHtml())
-        .addTo(map);
-      contextMenuPopupRef.current = popup;
-
-      const el = popup.getElement();
-      el?.querySelector('.gf-ctx-identify')?.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        popup.remove();
-        showIdentifyPopup(lngLat);
-      });
-      el?.querySelector('.gf-ctx-close')?.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        popup.remove();
+    const showExternalMapModal = (state: IdentifyState) => {
+      const locationLabel = state.result?.address || state.result?.label || 'Local';
+      const options = buildExternalMapOptions(state.lon, state.lat, locationLabel);
+      const overlay = document.createElement('div');
+      overlay.innerHTML = buildExternalMapModalHtml(options);
+      const el = overlay.firstElementChild as HTMLElement;
+      document.body.appendChild(el);
+      wireExternalMapModalEvents(el, options, {
+        onClose: () => el.remove(),
+        onOpen: (url) => { window.open(url, '_blank', 'noopener,noreferrer'); el.remove(); },
+        onDownloadKml: () => {
+          const kml = buildLocationKml(state.lon, state.lat, locationLabel);
+          downloadTextFile('local.kml', kml, 'application/vnd.google-earth.kml+xml');
+          el.remove();
+        },
       });
     };
 
-    map.on('contextmenu', handleContextMenu);
+    map.getViewport().addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const coord = map.getEventCoordinate(e as MouseEvent);
+      contextEl.innerHTML = buildContextMenuHtml();
+      contextOverlay.setPosition(coord);
+      contextEl.querySelector('.gf-ctx-identify')?.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        contextOverlay.setPosition(undefined);
+        showIdentifyPopup(coord);
+      });
+      contextEl.querySelector('.gf-ctx-close')?.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        contextOverlay.setPosition(undefined);
+      });
+    });
+
+    map.once('postrender', () => {
+      setReady(true);
+      onMapReady?.(map);
+    });
 
     mapRef.current = map;
 
     return () => {
-      map.off('contextmenu', handleContextMenu);
-      map.remove();
+      map.setTarget(undefined);
       mapRef.current = null;
     };
   }, []);
 
+  // Troca basemap.
   const basemapIdRef = useRef(basemapId);
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !ready) return;
-    if (basemapIdRef.current === basemapId) return;
+    if (!ready || basemapIdRef.current === basemapId) return;
     basemapIdRef.current = basemapId;
-
-    let cancelled = false;
-    let handleStyleLoad: (() => void) | null = null;
-
-    void (async () => {
-      const style = basemapId === 'liberty' ? await getPatchedLibertyStyle() : getBasemapStyle(basemapId);
-      if (cancelled) return;
-
-      map.setStyle(style, { diff: false });
-      handleStyleLoad = () => {
-        syncGroupLayers(map, activeLayers, resourceOverrides);
-      };
-      map.once('style.load', handleStyleLoad);
-    })();
-
-    return () => {
-      cancelled = true;
-      if (handleStyleLoad) map.off('style.load', handleStyleLoad);
-    };
+    basemapLayerRef.current?.setSource(getBasemapSource(basemapId));
   }, [basemapId, ready]);
 
+  // Sincroniza camadas ativas.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
     syncGroupLayers(map, activeLayers, resourceOverrides);
-
-    if (clickHandlerRef.current) {
-      map.off('click', clickHandlerRef.current);
-    }
-    if (moveHandlerRef.current) {
-      map.off('mousemove', moveHandlerRef.current);
-    }
-
-    const queryableIds = () =>
-      activeLayers
-        .flatMap((layer) => [`gl-fill-${layer.id}`, `gl-line-${layer.id}`, `gl-circle-${layer.id}`])
-        .filter((id) => map.getLayer(id));
-
-    const clearSelection = () => {
-      for (const layer of activeLayers) {
-        for (const type of ['fill', 'line', 'circle']) {
-          const id = `gl-select-${type}-${layer.id}`;
-          if (map.getLayer(id)) map.setFilter(id, hiddenFilter());
-        }
-      }
-      popupRef.current?.remove();
-      popupRef.current = null;
-    };
-
-    const handleClick = (e: maplibregl.MapMouseEvent) => {
-      const ids = queryableIds();
-      if (ids.length === 0) return;
-
-      const features = map.queryRenderedFeatures(e.point, { layers: ids });
-      clearSelection();
-      if (features.length === 0) return;
-
-      // Agrupa features distintas (uma mesma geometria pode aparecer em
-      // varias sub-layers gl-fill/gl-line/gl-circle da mesma camada).
-      const entries: { layer: ActiveLayer; feature: maplibregl.MapGeoJSONFeature; pk: FeaturePk }[] = [];
-      const seen = new Set<string>();
-      for (const feature of features) {
-        const match = /^gl-(fill|line|circle)-(.+)$/.exec(feature.layer.id);
-        const layer = activeLayers.find((l) => l.id === match?.[2]);
-        const pk = getFeaturePk(feature);
-        if (!match || !layer || !pk) continue;
-        const key = `${layer.id}:${pk.property}:${pk.value}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        entries.push({ layer, feature, pk });
-      }
-      if (entries.length === 0) return;
-
-      let index = 0;
-
-      const showEntry = () => {
-        const { layer, feature, pk } = entries[index];
-
-        const fillFilter = pkFilter(pk);
-        map.setFilter(`gl-select-fill-${layer.id}`, fillFilterFor(fillFilter));
-        map.setFilter(`gl-select-line-${layer.id}`, fillFilter);
-        map.setFilter(`gl-select-circle-${layer.id}`, pointPkFilter(pk));
-
-        const effectiveConfig = fieldConfigsByLayerId?.[layer.id];
-        const fieldsConfig = effectiveConfig
-          ? { fields: effectiveConfig.fields, securityRules: effectiveConfig.securityRules, principals: userPrincipals }
-          : undefined;
-
-        const html = buildPopupHtml(layer.label, feature.properties ?? {}, fieldsConfig, {
-          index: index + 1,
-          total: entries.length,
-        });
-
-        if (!popupRef.current) {
-          popupRef.current = new maplibregl.Popup({ maxWidth: 'none', closeButton: false })
-            .setLngLat(e.lngLat)
-            .addTo(map);
-        }
-        popupRef.current.setHTML(html);
-
-        const el = popupRef.current.getElement();
-        if (!el) return;
-        el.querySelector('.gf-popup-zoom')?.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          const bounds = getFeatureBounds(feature.geometry);
-          if (bounds) map.fitBounds(bounds, { padding: 40, maxZoom: 18 });
-        });
-        el.querySelector('.gf-popup-prev')?.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          index = (index - 1 + entries.length) % entries.length;
-          showEntry();
-        });
-        el.querySelector('.gf-popup-next')?.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          index = (index + 1) % entries.length;
-          showEntry();
-        });
-        el.querySelector('.gf-popup-close')?.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          clearSelection();
-        });
-      };
-
-      showEntry();
-    };
-
-    const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
-      const ids = queryableIds();
-      if (ids.length === 0) {
-        map.getCanvas().style.cursor = '';
-        return;
-      }
-      const features = map.queryRenderedFeatures(e.point, { layers: ids });
-      map.getCanvas().style.cursor = features.length > 0 ? 'pointer' : '';
-    };
-
-    clickHandlerRef.current = handleClick;
-    moveHandlerRef.current = handleMouseMove;
-    map.on('click', handleClick);
-    map.on('mousemove', handleMouseMove);
-
-    return () => {
-      map.off('click', handleClick);
-      map.off('mousemove', handleMouseMove);
-    };
-  }, [ready, activeLayers, resourceOverrides, fieldConfigsByLayerId, userPrincipals]);
+  }, [ready, activeLayers, resourceOverrides]);
 
   return (
     <div

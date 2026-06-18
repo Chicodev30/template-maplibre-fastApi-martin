@@ -1,13 +1,6 @@
 html, body, #root { height: 100%; margin: 0; }
 body { font-family: system-ui, sans-serif; }
 
-/* Popup de feature: o conteudo do popup ja inclui seu proprio cabecalho
-   e bordas arredondadas, entao removemos o padding/raio padrao do MapLibre. */
-.maplibregl-popup-content {
-  padding: 0;
-  border-radius: 6px;
-  overflow: hidden;
-}
 
 /* Pin saltando: destaque temporario apos o zoom de um resultado da busca
    por palavra-chave. */

@@ -1,7 +1,7 @@
 // Detalhe/configuracao de um recurso do catalogo.
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type maplibregl from 'maplibre-gl';
+import type Map from 'ol/Map';
 import {
   ActionIcon,
   Anchor,
@@ -589,7 +589,7 @@ export function ResourceDetailPage() {
   const [selectedFeaturesByKey, setSelectedFeaturesByKey] = useState<Record<string, FeatureRef>>(
     {},
   );
-  const [previewMap, setPreviewMap] = useState<maplibregl.Map | null>(null);
+  const [previewMap, setPreviewMap] = useState<Map | null>(null);
   const attributes = useResourceAttributes(
     resource?.id ?? null,
     attributesOpened,

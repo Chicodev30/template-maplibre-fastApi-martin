@@ -2,7 +2,8 @@
 // dados da "Tabela de atributos" do admin/catalog/resources), com ação de
 // zoom por feição.
 import { useEffect, useState } from 'react';
-import type maplibregl from 'maplibre-gl';
+import type Map from 'ol/Map';
+import { fromLonLat } from 'ol/proj';
 import {
   ActionIcon,
   Button,
@@ -40,7 +41,7 @@ export function AttributeTablePanel({
   viewportBbox,
 }: {
   layer: AttributeTableLayer;
-  map: maplibregl.Map | null;
+  map: Map | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onClose: () => void;
@@ -114,16 +115,11 @@ export function AttributeTablePanel({
     const [minX, minY, maxX, maxY] = bbox;
     if ([minX, minY, maxX, maxY].some((v) => !Number.isFinite(v))) return;
     if (minX === maxX && minY === maxY) {
-      map.flyTo({ center: [minX, minY], zoom: 18, duration: 500 });
+      map.getView().animate({ center: fromLonLat([minX, minY]), zoom: 18, duration: 500 });
       return;
     }
-    map.fitBounds(
-      [
-        [minX, minY],
-        [maxX, maxY],
-      ],
-      { padding: 48, maxZoom: 18, duration: 500 },
-    );
+    const extent = [...fromLonLat([minX, minY]), ...fromLonLat([maxX, maxY])] as [number, number, number, number];
+    map.getView().fit(extent, { padding: [48, 48, 48, 48], maxZoom: 18, duration: 500 });
   }
 
   return (

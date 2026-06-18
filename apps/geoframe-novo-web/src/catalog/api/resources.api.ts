@@ -7,7 +7,6 @@ import type {
   ResourceAttributes,
   ResourceConfig,
   ResourceOverrides,
-  TileJson,
 } from '../types/resource.types';
 
 // Lista de recursos cadastrados (DB).
@@ -18,15 +17,6 @@ export function useCatalogResources() {
   });
 }
 
-// TileJSON (via API): bounds para o thumbnail + fields/tipos da camada.
-export function useTileJson(sourceId: string) {
-  return useQuery({
-    queryKey: ['tilejson', sourceId],
-    queryFn: () => apiGet<TileJson>(`/tiles/${sourceId}`),
-    staleTime: 5 * 60 * 1000,
-    enabled: !!sourceId,
-  });
-}
 
 // Overrides de catalogo (bbox manual + feicoes excluidas).
 export function useResourceOverrides() {
@@ -136,7 +126,7 @@ export function useResourceFields(sourceId: string | null) {
   });
 }
 
-// GeoServer discovery: workspaces e layers disponiveis.
+// GeoServer discovery: workspaces e layers disponíveis.
 export function useGeoServerWorkspaces() {
   return useQuery({
     queryKey: ['geoserver', 'workspaces'],

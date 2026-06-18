@@ -1,7 +1,7 @@
 // Layout principal do app de mapa: header (hamburger, logo, titulo e brasao),
 // menu principal (drawer/flutuante) e painel "Camadas" que abre por cima do mapa.
 import { useMemo, useState } from 'react';
-import type maplibregl from 'maplibre-gl';
+import type Map from 'ol/Map';
 import { AppShell, Burger, Group, Image, Paper, Stack, Text } from '@mantine/core';
 import { APP_TITLE, APP_SUBTITLE } from '../../app/constants';
 import { useAuth } from '../../auth/useAuth';
@@ -25,7 +25,7 @@ import { FloatingPanel } from './FloatingPanel';
 import { PrintPanel } from './PrintPanel';
 import { BasemapPanel } from './BasemapPanel';
 import { AddressIcon, BasemapIcon, KeywordIcon, LayerIcon, LegendIcon, LocateIcon, PrintIcon, SearchIcon } from './icons';
-import { DEFAULT_BASEMAP_ID } from '../../map/maplibre/basemaps';
+import { DEFAULT_BASEMAP_ID } from '../../map/basemaps';
 
 type View =
   | 'menu'
@@ -47,7 +47,7 @@ export function MapLayout() {
   const [tableCollapsed, setTableCollapsed] = useState(false);
   const [searchFilters, setSearchFilters] = useState<SearchFilterRule[] | null>(null);
   const [searchBbox, setSearchBbox] = useState<[number, number, number, number] | null>(null);
-  const [map, setMap] = useState<maplibregl.Map | null>(null);
+  const [map, setMap] = useState<Map | null>(null);
   const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
   const catalogActiveLayers = useActiveLayers(visibilityOverrides);

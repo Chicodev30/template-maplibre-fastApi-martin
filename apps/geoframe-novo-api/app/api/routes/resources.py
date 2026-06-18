@@ -1,26 +1,23 @@
 # Rotas de resources.
-# Recursos sao camadas GeoServer adicionadas manualmente pelo admin
-# (workspace + layer). Metadados e atributos vem via GeoServer REST/WFS.
+# Recursos são camadas GeoServer cadastradas pelo admin (workspace.layer).
 import base64
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.session import get_session
+from app.db.session import get_async_db, get_session
 from app.dependencies import require_role
 from app.models.resource import ResourceConfig
 from app.models.role import AppRole
 from app.models.user import User
-from app.services import geoserver_service
 
 router = APIRouter(prefix="/catalog", tags=["resources"])
-
-settings = get_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -158,17 +155,27 @@ def list_resource_overrides(db: Session = Depends(get_session)) -> dict[str, Res
 
 
 # ---------------------------------------------------------------------------
-# GeoServer discovery
+# GeoServer discovery: workspaces e layers disponíveis
 # ---------------------------------------------------------------------------
 
 @router.get("/geoserver/workspaces", response_model=list[str])
 async def list_geoserver_workspaces(
     _user: User = Depends(require_role(AppRole.admin)),
 ) -> list[str]:
-    try:
-        return await geoserver_service.list_workspaces()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Erro ao consultar GeoServer: {exc}") from exc
+    """Lista workspaces disponíveis no GeoServer."""
+    settings = get_settings()
+    url = f"{settings.geoserver_base_url}/rest/workspaces.json"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url,
+            auth=(settings.geoserver_user, settings.geoserver_password),
+            timeout=10,
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Falha ao consultar GeoServer")
+    data = resp.json()
+    workspaces = data.get("workspaces", {}).get("workspace", [])
+    return sorted(w["name"] for w in workspaces)
 
 
 @router.get("/geoserver/workspaces/{workspace}/layers", response_model=list[str])
@@ -176,10 +183,22 @@ async def list_geoserver_layers(
     workspace: str,
     _user: User = Depends(require_role(AppRole.admin)),
 ) -> list[str]:
-    try:
-        return await geoserver_service.list_layers(workspace)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Erro ao consultar GeoServer: {exc}") from exc
+    """Lista layers de um workspace do GeoServer."""
+    settings = get_settings()
+    url = f"{settings.geoserver_base_url}/rest/workspaces/{workspace}/layers.json"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url,
+            auth=(settings.geoserver_user, settings.geoserver_password),
+            timeout=10,
+        )
+    if resp.status_code == 404:
+        return []
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Falha ao consultar GeoServer")
+    data = resp.json()
+    layers = data.get("layers", {}).get("layer", [])
+    return sorted(la["name"] for la in layers)
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +304,7 @@ def get_thumbnail(source_id: str, db: Session = Depends(get_session)) -> Respons
 
 
 # ---------------------------------------------------------------------------
-# Campos via WFS DescribeFeatureType
+# Campos via information_schema (substitui WFS DescribeFeatureType)
 # ---------------------------------------------------------------------------
 
 class ResourceField(BaseModel):
@@ -295,16 +314,35 @@ class ResourceField(BaseModel):
 
 
 @router.get("/resources/{source_id}/fields", response_model=list[ResourceField])
-async def get_resource_fields(source_id: str) -> list[ResourceField]:
-    try:
-        fields = await geoserver_service.get_fields(source_id)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Erro ao consultar WFS: {exc}") from exc
-    return [ResourceField(**f) for f in fields]
+async def get_resource_fields(
+    source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+) -> list[ResourceField]:
+    """Campos da tabela via information_schema (exclui colunas de geometria)."""
+    schema, _, table = source_id.partition(".")
+    if not table:
+        raise HTTPException(status_code=400, detail="source_id deve ser schema.tabela")
+
+    geom_cols_result = await db.execute(text(
+        "SELECT f_geometry_column FROM geometry_columns "
+        "WHERE f_table_schema = :schema AND f_table_name = :table"
+    ), {"schema": schema, "table": table})
+    geom_cols = {row[0] for row in geom_cols_result.fetchall()}
+
+    result = await db.execute(text(
+        "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
+        "WHERE table_schema = :schema AND table_name = :table ORDER BY ordinal_position"
+    ), {"schema": schema, "table": table})
+
+    return [
+        ResourceField(name=row[0], data_type=row[1], nullable=row[2] == "YES")
+        for row in result.fetchall()
+        if row[0] not in geom_cols
+    ]
 
 
 # ---------------------------------------------------------------------------
-# Atributos via WFS
+# Atributos via PostGIS (substitui WFS)
 # ---------------------------------------------------------------------------
 
 @router.get("/resources/{source_id}/attributes", response_model=ResourceAttributes)
@@ -316,24 +354,70 @@ async def get_resource_attributes(
     filter_value: str | None = None,
     sort_column: str | None = None,
     sort_direction: str = "asc",
+    db: AsyncSession = Depends(get_async_db),
 ) -> ResourceAttributes:
-    try:
-        result = await geoserver_service.get_attributes(
-            source_id,
-            limit=max(1, min(limit, 200)),
-            offset=max(0, offset),
-            filter_column=filter_column,
-            filter_value=filter_value,
-            sort_column=sort_column,
-            sort_direction=sort_direction,
-        )
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Erro ao consultar WFS: {exc}") from exc
-    return ResourceAttributes(
-        resourceId=source_id,
-        limit=limit,
-        offset=offset,
-        total=result["total"],
-        rows=result["rows"],
-        columns=result["columns"],
+    """Atributos da tabela PostGIS com paginação e filtro opcional."""
+    schema, _, table = source_id.partition(".")
+    if not table:
+        raise HTTPException(status_code=400, detail="source_id deve ser schema.tabela")
+
+    geom_result = await db.execute(text(
+        "SELECT f_geometry_column FROM geometry_columns "
+        "WHERE f_table_schema = :schema AND f_table_name = :table LIMIT 1"
+    ), {"schema": schema, "table": table})
+    geom_row = geom_result.fetchone()
+    geom_col = geom_row[0] if geom_row else "geom"
+
+    where_clause = ""
+    params: dict[str, Any] = {"limit": max(1, min(limit, 200)), "offset": max(0, offset)}
+    if filter_column and filter_value:
+        where_clause = f'WHERE CAST("{filter_column}" AS TEXT) ILIKE :filter_val'
+        params["filter_val"] = f"%{filter_value}%"
+
+    order_clause = ""
+    if sort_column:
+        direction = "DESC" if sort_direction.lower() == "desc" else "ASC"
+        order_clause = f'ORDER BY "{sort_column}" {direction}'
+
+    count_result = await db.execute(
+        text(f'SELECT COUNT(*) FROM "{schema}"."{table}" {where_clause}'),  # noqa: S608
+        params,
     )
+    total = count_result.scalar() or 0
+
+    # Busca propriedades (sem coluna geom) + bbox calculado a partir da geometria.
+    rows_result = await db.execute(text(  # noqa: S608
+        f"""
+        SELECT row_to_json(t) AS props,
+               ARRAY[
+                 ST_XMin(ST_Transform("{geom_col}", 4326)),
+                 ST_YMin(ST_Transform("{geom_col}", 4326)),
+                 ST_XMax(ST_Transform("{geom_col}", 4326)),
+                 ST_YMax(ST_Transform("{geom_col}", 4326))
+               ] AS bbox
+        FROM (
+            SELECT * FROM "{schema}"."{table}"
+            {where_clause} {order_clause}
+            LIMIT :limit OFFSET :offset
+        ) t
+        """
+    ), params)
+
+    rows_raw = rows_result.fetchall()
+    if not rows_raw:
+        return ResourceAttributes(resourceId=source_id, limit=limit, offset=offset, total=int(total), rows=[], columns=[])
+
+    first_props = dict(rows_raw[0][0])
+    first_props.pop(geom_col, None)
+    columns = [k for k in first_props if not k.startswith("@")]
+
+    rows = []
+    for raw_row in rows_raw:
+        props = dict(raw_row[0])
+        props.pop(geom_col, None)
+        row: dict[str, Any] = {k: props.get(k) for k in columns}
+        if raw_row[1] and all(v is not None for v in raw_row[1]):
+            row["__bbox"] = list(raw_row[1])
+        rows.append(row)
+
+    return ResourceAttributes(resourceId=source_id, limit=limit, offset=offset, total=int(total), rows=rows, columns=columns)

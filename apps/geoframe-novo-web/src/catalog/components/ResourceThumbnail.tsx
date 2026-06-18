@@ -1,20 +1,20 @@
-// Thumbnail ao vivo: mini-mapa MapLibre com a camada MVT sobre OSM.
-// Inicializa apenas quando o card entra na viewport, para nao estourar o
-// limite de contextos WebGL do navegador (~16) quando ha muitas tabelas.
+// Thumbnail ao vivo: mini-mapa OpenLayers com a camada OGC API Features sobre OSM.
+// Inicializa apenas quando o card entra na viewport.
 import { useEffect, useRef, useState } from 'react';
-
-// Semaforo global: limita o numero de contextos WebGL simultaneos.
-// Browsers tipicamente suportam ~16; usamos 10 para deixar margem para
-// outros mapas na pagina (ex.: o mapa principal do app).
-const MAX_GL_CONTEXTS = 10;
-let activeGlContexts = 0;
-import maplibregl from 'maplibre-gl';
+import Map from 'ol/Map';
+import View from 'ol/View';
+import TileLayer from 'ol/layer/Tile';
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import GeoJSON from 'ol/format/GeoJSON';
+import OSM from 'ol/source/OSM';
+import { Style, Fill, Stroke, Circle as CircleStyle, Text as TextStyle } from 'ol/style';
+import { fromLonLat, transformExtent } from 'ol/proj';
+import type { FeatureLike } from 'ol/Feature';
+import 'ol/ol.css';
 import { Box, Center, Loader, Text } from '@mantine/core';
 import { env } from '../../app/env';
-import { createOsmStyle } from '../../map/maplibre/createMapStyle';
-import { getFeaturePk } from '../../map/groupLayers/featureInteraction';
-import { labelPlacement } from '../../map/groupLayers/labelPlacement';
-import { useTileJson, thumbnailUrl } from '../api/resources.api';
+import { thumbnailUrl } from '../api/resources.api';
 import type { LayerStyle } from '../types/style.types';
 
 export type FeatureRef = {
@@ -22,50 +22,60 @@ export type FeatureRef = {
   value: string | number | boolean;
 };
 
-function hiddenFilter() {
-  return ['==', ['literal', 1], 0] as unknown as maplibregl.FilterSpecification;
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// O bucket de 'circle' do MapLibre desenha um círculo em CADA vértice da geometria,
-// não só em features de ponto — sem este filtro, polígonos/linhas ficam cobertos de pontos.
-const pointTypeFilter = ['==', ['geometry-type'], 'Point'] as unknown as maplibregl.FilterSpecification;
+function buildStyle(layerStyle: LayerStyle | null, selectedFeatures: FeatureRef[], excludedFeatures: FeatureRef[], hideExcluded: boolean) {
+  const color = layerStyle?.color ?? '#1971c2';
+  const opacity = layerStyle?.opacity ?? 0.35;
+  const lineColor = layerStyle ? (layerStyle.outlineColor || layerStyle.color) : '#1971c2';
+  const lineWidth = layerStyle?.outlineWidth ?? 1;
 
-function circleFilterFor(base?: maplibregl.FilterSpecification | null): maplibregl.FilterSpecification {
-  return base ? (['all', pointTypeFilter, base] as unknown as maplibregl.FilterSpecification) : pointTypeFilter;
-}
+  return (feature: FeatureLike): Style => {
+    const props = feature.getProperties() as Record<string, unknown>;
 
-// O bucket de 'fill' do MapLibre triangula QUALQUER anel de vértices, mesmo de uma
-// LineString (inclusive fechada) — sem este filtro, camadas de linha aparecem com
-// preenchimento indevido (ex.: divisas/limites desenhados como polígonos).
-const polygonTypeFilter = ['==', ['geometry-type'], 'Polygon'] as unknown as maplibregl.FilterSpecification;
+    const isExcluded = excludedFeatures.some((e) => String(props[e.property]) === String(e.value));
+    const isSelected = selectedFeatures.length > 0 && selectedFeatures.some((e) => String(props[e.property]) === String(e.value));
 
-function fillFilterFor(base?: maplibregl.FilterSpecification | null): maplibregl.FilterSpecification {
-  return base ? (['all', polygonTypeFilter, base] as unknown as maplibregl.FilterSpecification) : polygonTypeFilter;
-}
+    if (isExcluded) {
+      if (hideExcluded) return new Style();
+      return new Style({
+        fill: new Fill({ color: 'rgba(224,49,49,0.45)' }),
+        stroke: new Stroke({ color: '#c92a2a', width: 3 }),
+        image: new CircleStyle({ radius: 6, fill: new Fill({ color: 'rgba(224,49,49,0.45)' }), stroke: new Stroke({ color: '#c92a2a', width: 2 }) }),
+      });
+    }
 
-function featureFilter(features: FeatureRef[]) {
-  if (!features.length) return hiddenFilter();
-  if (features.length === 1) {
-    return [
-      '==',
-      ['get', features[0].property],
-      features[0].value,
-    ] as unknown as maplibregl.FilterSpecification;
-  }
-  return [
-    'any',
-    ...features.map((feature) => ['==', ['get', feature.property], feature.value]),
-  ] as unknown as maplibregl.FilterSpecification;
-}
+    if (isSelected) {
+      return new Style({
+        fill: new Fill({ color: 'rgba(64,192,87,0.45)' }),
+        stroke: new Stroke({ color: '#2f9e44', width: 4 }),
+        image: new CircleStyle({ radius: 6, fill: new Fill({ color: 'rgba(64,192,87,0.45)' }), stroke: new Stroke({ color: '#2f9e44', width: 2 }) }),
+      });
+    }
 
-// Filtro "negativo": exclui as feicoes informadas das camadas base.
-function exclusionFilter(features: FeatureRef[]): maplibregl.FilterSpecification | undefined {
-  if (!features.length) return undefined;
-  const conditions = features.map(
-    (feature) => ['!=', ['get', feature.property], feature.value] as unknown,
-  );
-  if (conditions.length === 1) return conditions[0] as maplibregl.FilterSpecification;
-  return ['all', ...conditions] as unknown as maplibregl.FilterSpecification;
+    const fillColor = hexToRgba(color, opacity);
+    const textOpts = layerStyle?.label.enabled && layerStyle.label.field
+      ? new TextStyle({
+          text: String(props[layerStyle.label.field] ?? ''),
+          font: `${layerStyle.label.size}px ${layerStyle.label.fontFamily}`,
+          fill: new Fill({ color: layerStyle.label.color }),
+          stroke: new Stroke({ color: layerStyle.label.haloColor, width: 1.5 }),
+        })
+      : undefined;
+
+    return new Style({
+      fill: new Fill({ color: fillColor }),
+      stroke: new Stroke({ color: lineColor, width: lineWidth }),
+      image: new CircleStyle({ radius: 4, fill: new Fill({ color: fillColor }), stroke: new Stroke({ color: lineColor, width: lineWidth }) }),
+      text: textOpts,
+    });
+  };
 }
 
 export function ResourceThumbnail({
@@ -93,26 +103,22 @@ export function ResourceThumbnail({
   hideExcluded?: boolean;
   previewStyle?: LayerStyle | null;
   onFeatureClick?: (feature: FeatureRef) => void;
-  onMapReady?: (map: maplibregl.Map) => void;
+  onMapReady?: (map: Map) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapRef = useRef<Map | null>(null);
+  const vectorLayerRef = useRef<VectorLayer | null>(null);
   const [visible, setVisible] = useState(!lazy);
-  // Mapas interativos (detail page) sempre usam live map; thumbnails (galeria)
-  // tentam primeiro a imagem estatica para economizar contextos WebGL.
-  // null=verificando, false=sem thumb salva, string=URL da thumb
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [staticThumb, setStaticThumb] = useState<string | null | false>(interactive ? false : null);
-  const { data: tj, isLoading, isError } = useTileJson(
-    visible && staticThumb === false ? sourceId : '',
-  );
 
-  // Verifica se ha thumbnail estatica salva (apenas para thumbnails nao-interativos).
+  // Verifica se há thumbnail estática salva.
   useEffect(() => {
     if (!visible || interactive) return;
     const url = thumbnailUrl(sourceId);
     fetch(url)
       .then(async (r) => {
-        // Verifica content-type para nao confundir resposta HTML (ex.: NGINX 404->index.html) com imagem
         const ct = r.headers.get('content-type') ?? '';
         if (r.ok && ct.includes('image/')) setStaticThumb(url);
         else setStaticThumb(false);
@@ -125,300 +131,118 @@ export function ResourceThumbnail({
     const el = containerRef.current;
     if (!lazy || !el) return;
     const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          obs.disconnect();
-        }
-      },
+      (entries) => { if (entries.some((e) => e.isIntersecting)) { setVisible(true); obs.disconnect(); } },
       { rootMargin: '100px' },
     );
     obs.observe(el);
     return () => obs.disconnect();
   }, [lazy]);
 
-  // Cria o mapa quando TileJSON chega e nao ha thumbnail estatica.
+  // Cria o mapa OL quando necessário.
   useEffect(() => {
-    if (!visible || staticThumb === null || staticThumb !== false || !tj || !containerRef.current || mapRef.current) return;
-    if (activeGlContexts >= MAX_GL_CONTEXTS) return;
+    if (!visible || staticThumb === null || staticThumb !== false || !containerRef.current || mapRef.current) return;
 
-    activeGlContexts++;
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: createOsmStyle(),
-      interactive,
-      attributionControl: false,
-      bounds: boundsOverride ?? tj.bounds,
-      fitBoundsOptions: { padding: 12, maxZoom: 14 },
+    setLoading(true);
+    setError(false);
+
+    const initialBounds = boundsOverride ?? null;
+    const center = initialBounds ? fromLonLat([(initialBounds[0] + initialBounds[2]) / 2, (initialBounds[1] + initialBounds[3]) / 2]) : fromLonLat([-51.2287, -30.0346]);
+
+    const source = new VectorSource({
+      format: new GeoJSON({ featureProjection: 'EPSG:3857' }),
+      loader: async (_extent, _resolution, projection) => {
+        try {
+          const bboxParam = initialBounds ? `&bbox=${initialBounds.join(',')}` : '';
+          const res = await fetch(`${env.apiBaseUrl}/ogc/collections/${encodeURIComponent(sourceId)}/items?limit=2000${bboxParam}`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('access_token') ?? ''}` },
+          });
+          if (!res.ok) throw new Error('fetch error');
+          const data = await res.json();
+          const format = new GeoJSON({ featureProjection: projection.getCode() });
+          const features = format.readFeatures(data);
+          source.addFeatures(features);
+          setLoading(false);
+
+          if (mapRef.current) {
+            const extent = source.getExtent();
+            if (extent && isFinite(extent[0])) {
+              mapRef.current.getView().fit(extent, { padding: [12, 12, 12, 12], maxZoom: 14, duration: 0 });
+            }
+            onMapReady?.(mapRef.current);
+          }
+        } catch {
+          setError(true);
+          setLoading(false);
+        }
+      },
     });
 
-    map.on('load', () => {
-      map.addSource('resource', {
-        type: 'vector',
-        tiles: [`${env.apiBaseUrl}/tiles/${sourceId}/{z}/{x}/{y}`],
-      });
-      // GeoServer GWC embeds o nome da camada sem prefixo de workspace no PBF.
-      // Ex.: sourceId "teste.alagados" -> source-layer "alagados".
-      const sourceLayer = sourceId.includes('.') ? sourceId.split('.').slice(1).join('.') : sourceId;
-      const common = { source: 'resource', 'source-layer': sourceLayer } as const;
-      const exclusion = hideExcluded ? exclusionFilter(excludedFeatures) : undefined;
-      const fillColor = previewStyle?.color ?? '#1971c2';
-      const fillOpacity = previewStyle?.opacity ?? 0.35;
-      const lineColor = previewStyle ? previewStyle.outlineColor || previewStyle.color : '#1971c2';
-      const lineWidth = previewStyle?.outlineWidth ?? 1;
-      // Preenchimento so se aplica a geometrias de poligono (ver fillFilterFor).
-      map.addLayer({
-        ...common,
-        id: 'resource-fill',
-        type: 'fill',
-        filter: fillFilterFor(exclusion),
-        paint: { 'fill-color': fillColor, 'fill-opacity': fillOpacity },
-      });
-      map.addLayer({
-        ...common,
-        id: 'resource-line',
-        type: 'line',
-        ...(exclusion ? { filter: exclusion } : {}),
-        paint: { 'line-color': lineColor, 'line-width': lineWidth },
-      });
-      map.addLayer({
-        ...common,
-        id: 'resource-circle',
-        type: 'circle',
-        filter: circleFilterFor(exclusion),
-        paint: {
-          'circle-color': fillColor,
-          'circle-opacity': fillOpacity,
-          'circle-radius': 2.5,
-          'circle-stroke-color': lineColor,
-          'circle-stroke-width': previewStyle ? lineWidth : 0,
-        },
-      });
-      const emptyFilter = hiddenFilter();
-      map.addLayer({
-        ...common,
-        id: 'resource-selected-fill',
-        type: 'fill',
-        filter: fillFilterFor(emptyFilter),
-        paint: { 'fill-color': '#40c057', 'fill-opacity': 0.45 },
-      });
-      map.addLayer({
-        ...common,
-        id: 'resource-selected-line',
-        type: 'line',
-        filter: emptyFilter,
-        paint: { 'line-color': '#2f9e44', 'line-width': 4 },
-      });
-      map.addLayer({
-        ...common,
-        id: 'resource-selected-circle',
-        type: 'circle',
-        filter: circleFilterFor(emptyFilter),
-        paint: {
-          'circle-color': '#40c057',
-          'circle-stroke-color': '#2f9e44',
-          'circle-stroke-width': 2,
-          'circle-radius': 6,
-        },
-      });
-      // Destaque vermelho das feicoes marcadas como excluidas do catalogo
-      // (visivel quando hideExcluded=false, para revisao no admin).
-      const excludedFilter = hideExcluded ? emptyFilter : featureFilter(excludedFeatures);
-      map.addLayer({
-        ...common,
-        id: 'resource-excluded-fill',
-        type: 'fill',
-        filter: fillFilterFor(excludedFilter),
-        paint: { 'fill-color': '#e03131', 'fill-opacity': 0.45 },
-      });
-      map.addLayer({
-        ...common,
-        id: 'resource-excluded-line',
-        type: 'line',
-        filter: excludedFilter,
-        paint: { 'line-color': '#c92a2a', 'line-width': 4 },
-      });
-      map.addLayer({
-        ...common,
-        id: 'resource-excluded-circle',
-        type: 'circle',
-        filter: circleFilterFor(excludedFilter),
-        paint: {
-          'circle-color': '#e03131',
-          'circle-stroke-color': '#c92a2a',
-          'circle-stroke-width': 2,
-          'circle-radius': 6,
-        },
-      });
+    const vectorLayer = new VectorLayer({
+      source,
+      style: buildStyle(previewStyle, selectedFeatures, excludedFeatures, hideExcluded),
+      zIndex: 1,
+    });
+    vectorLayerRef.current = vectorLayer;
 
-      const showLabel = !!previewStyle?.label.enabled && !!previewStyle?.label.field;
-      const { anchor, offset } = labelPlacement(previewStyle?.label.position ?? 'top');
-      const labelTextField = previewStyle?.label.field ? ['get', previewStyle.label.field] : '';
-      map.addLayer({
-        ...common,
-        id: 'resource-label',
-        type: 'symbol',
-        ...(exclusion ? { filter: exclusion } : {}),
-        layout: {
-          visibility: showLabel ? 'visible' : 'none',
-          'text-field': labelTextField as unknown as string,
-          'text-font': [previewStyle?.label.fontFamily ?? 'Noto Sans Regular'],
-          'text-size': previewStyle?.label.size ?? 12,
-          'text-anchor': anchor,
-          'text-offset': offset,
-          'text-allow-overlap': false,
-        },
-        paint: {
-          'text-color': previewStyle?.label.color ?? '#222222',
-          'text-halo-color': previewStyle?.label.haloColor ?? '#ffffff',
-          'text-halo-width': 1.5,
-        },
-      });
-
-      onMapReady?.(map);
+    const map = new Map({
+      target: containerRef.current,
+      layers: [new TileLayer({ source: new OSM(), zIndex: 0 }), vectorLayer],
+      view: new View({ center, zoom: 12, projection: 'EPSG:3857' }),
+      controls: [],
+      interactions: interactive ? undefined : [],
     });
 
     if (interactive && onFeatureClick) {
       map.on('click', (e) => {
-        const features = map.queryRenderedFeatures(e.point, {
-          layers: ['resource-fill', 'resource-line', 'resource-circle'],
+        map.forEachFeatureAtPixel(e.pixel, (feature) => {
+          const props = feature.getProperties() as Record<string, unknown>;
+          const pk = typeof props.ogc_fid !== 'undefined' ? { property: 'ogc_fid', value: props.ogc_fid as string | number | boolean }
+            : typeof props.id !== 'undefined' ? { property: 'id', value: props.id as string | number | boolean }
+            : null;
+          if (pk) onFeatureClick(pk);
+          return true;
         });
-        if (features.length === 0) return;
-        const pk = getFeaturePk(features[0]);
-        if (pk) onFeatureClick(pk);
       });
     }
 
     mapRef.current = map;
     return () => {
-      map.remove();
+      map.setTarget(undefined);
       mapRef.current = null;
-      activeGlContexts--;
+      vectorLayerRef.current = null;
     };
-    // boundsOverride/excludedFeatures/hideExcluded/previewStyle sao usados apenas
-    // na criacao inicial do mapa; atualizacoes posteriores sao tratadas pelos
-    // effects abaixo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, tj, sourceId, interactive]);
+  }, [visible, staticThumb, sourceId, interactive]);
 
+  // Atualiza estilo ao mudar previewStyle/selectedFeatures/excludedFeatures.
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const filter = featureFilter(selectedFeatures);
-    if (map.getLayer('resource-selected-fill')) {
-      map.setFilter('resource-selected-fill', fillFilterFor(filter));
-    }
-    if (map.getLayer('resource-selected-line')) {
-      map.setFilter('resource-selected-line', filter);
-    }
-    if (map.getLayer('resource-selected-circle')) {
-      map.setFilter('resource-selected-circle', circleFilterFor(filter));
-    }
-  }, [selectedFeatures]);
+    vectorLayerRef.current?.setStyle(buildStyle(previewStyle, selectedFeatures, excludedFeatures, hideExcluded));
+  }, [previewStyle, selectedFeatures, excludedFeatures, hideExcluded]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const exclusion = hideExcluded ? exclusionFilter(excludedFeatures) : undefined;
-    if (map.getLayer('resource-fill')) {
-      map.setFilter('resource-fill', fillFilterFor(exclusion));
-    }
-    if (map.getLayer('resource-line')) {
-      map.setFilter('resource-line', exclusion ?? null);
-    }
-    if (map.getLayer('resource-circle')) {
-      map.setFilter('resource-circle', circleFilterFor(exclusion));
-    }
-    const highlight = hideExcluded ? hiddenFilter() : featureFilter(excludedFeatures);
-    if (map.getLayer('resource-excluded-fill')) {
-      map.setFilter('resource-excluded-fill', fillFilterFor(highlight));
-    }
-    if (map.getLayer('resource-excluded-line')) {
-      map.setFilter('resource-excluded-line', highlight);
-    }
-    if (map.getLayer('resource-excluded-circle')) {
-      map.setFilter('resource-excluded-circle', circleFilterFor(highlight));
-    }
-  }, [excludedFeatures, hideExcluded]);
-
-  // Reflete o estilo em edicao em tempo real, sem recriar o mapa.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !previewStyle) return;
-
-    const fillColor = previewStyle.color;
-    const fillOpacity = previewStyle.opacity;
-    const lineColor = previewStyle.outlineColor || previewStyle.color;
-    const lineWidth = previewStyle.outlineWidth;
-
-    if (map.getLayer('resource-fill')) {
-      map.setPaintProperty('resource-fill', 'fill-color', fillColor);
-      map.setPaintProperty('resource-fill', 'fill-opacity', fillOpacity);
-    }
-    if (map.getLayer('resource-line')) {
-      map.setPaintProperty('resource-line', 'line-color', lineColor);
-      map.setPaintProperty('resource-line', 'line-width', lineWidth);
-    }
-    if (map.getLayer('resource-circle')) {
-      map.setPaintProperty('resource-circle', 'circle-color', fillColor);
-      map.setPaintProperty('resource-circle', 'circle-opacity', fillOpacity);
-      map.setPaintProperty('resource-circle', 'circle-stroke-color', lineColor);
-      map.setPaintProperty('resource-circle', 'circle-stroke-width', lineWidth);
-    }
-
-    if (map.getLayer('resource-label')) {
-      const showLabel = previewStyle.label.enabled && !!previewStyle.label.field;
-      const { anchor, offset } = labelPlacement(previewStyle.label.position);
-      const textField = previewStyle.label.field ? ['get', previewStyle.label.field] : '';
-      map.setLayoutProperty('resource-label', 'visibility', showLabel ? 'visible' : 'none');
-      map.setLayoutProperty('resource-label', 'text-field', textField);
-      map.setLayoutProperty('resource-label', 'text-font', [previewStyle.label.fontFamily]);
-      map.setLayoutProperty('resource-label', 'text-size', previewStyle.label.size);
-      map.setLayoutProperty('resource-label', 'text-anchor', anchor);
-      map.setLayoutProperty('resource-label', 'text-offset', offset);
-      map.setPaintProperty('resource-label', 'text-color', previewStyle.label.color);
-      map.setPaintProperty('resource-label', 'text-halo-color', previewStyle.label.haloColor);
-    }
-  }, [previewStyle]);
-
+  // Zoom para focusBounds.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !focusBounds) return;
     const [minX, minY, maxX, maxY] = focusBounds;
-    if ([minX, minY, maxX, maxY].some((value) => !Number.isFinite(value))) return;
+    if ([minX, minY, maxX, maxY].some((v) => !Number.isFinite(v))) return;
     if (minX === maxX && minY === maxY) {
-      map.flyTo({ center: [minX, minY], zoom: 18, duration: 500 });
-      return;
+      map.getView().animate({ center: fromLonLat([minX, minY]), zoom: 18, duration: 500 });
+    } else {
+      const extent = transformExtent([minX, minY, maxX, maxY], 'EPSG:4326', 'EPSG:3857');
+      map.getView().fit(extent, { padding: [48, 48, 48, 48], maxZoom: 18, duration: 500 });
     }
-    map.fitBounds(
-      [
-        [minX, minY],
-        [maxX, maxY],
-      ],
-      { padding: 48, maxZoom: 18, duration: 500 },
-    );
   }, [focusBounds]);
 
   return (
     <Box ref={containerRef} pos="relative" h={height} bg="gray.1" style={{ overflow: 'hidden' }}>
       {staticThumb && (
-        <img
-          src={staticThumb}
-          alt="preview"
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-        />
+        <img src={staticThumb} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
       )}
-      {visible && staticThumb === false && isLoading && (
-        <Center h="100%">
-          <Loader size="sm" />
-        </Center>
+      {visible && staticThumb === false && loading && (
+        <Center h="100%"><Loader size="sm" /></Center>
       )}
-      {staticThumb === false && isError && (
-        <Center h="100%">
-          <Text size="xs" c="dimmed">
-            sem preview
-          </Text>
-        </Center>
+      {staticThumb === false && error && (
+        <Center h="100%"><Text size="xs" c="dimmed">sem preview</Text></Center>
       )}
     </Box>
   );
