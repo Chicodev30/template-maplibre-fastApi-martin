@@ -2,7 +2,7 @@
 # Papeis padrao do app e a hierarquia "o maior prevalece".
 from enum import Enum
 
-from app.config import get_settings
+from app.core.constants import KC_ROLE_ADMIN, KC_ROLE_CONTRIBUIDOR, KC_ROLE_VISUALIZADOR
 
 
 class AppRole(str, Enum):
@@ -18,24 +18,20 @@ _RANK: dict[AppRole, int] = {
     AppRole.admin: 3,
 }
 
+_KC_TO_APP: dict[str, AppRole] = {
+    KC_ROLE_ADMIN: AppRole.admin,
+    KC_ROLE_CONTRIBUIDOR: AppRole.contribuidor,
+    KC_ROLE_VISUALIZADOR: AppRole.visualizador,
+}
+
 
 def rank(role: AppRole) -> int:
     return _RANK[role]
 
 
-def _kc_to_app_map() -> dict[str, AppRole]:
-    s = get_settings()
-    return {
-        s.kc_role_admin: AppRole.admin,
-        s.kc_role_contribuidor: AppRole.contribuidor,
-        s.kc_role_visualizador: AppRole.visualizador,
-    }
-
-
 def map_kc_roles(kc_roles: list[str]) -> set[AppRole]:
     """Converte os roles do Keycloak nos papeis do app (ignora os demais)."""
-    mapping = _kc_to_app_map()
-    return {mapping[r] for r in kc_roles if r in mapping}
+    return {_KC_TO_APP[r] for r in kc_roles if r in _KC_TO_APP}
 
 
 def highest_role(app_roles: set[AppRole]) -> AppRole | None:

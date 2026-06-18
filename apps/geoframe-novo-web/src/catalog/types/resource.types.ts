@@ -1,10 +1,5 @@
 // Tipos de resource.
 
-// Catalogo do Martin via API: GET /api/tiles/catalog
-export interface MartinCatalog {
-  tiles: Record<string, { content_type: string; description: string }>;
-}
-
 // TileJSON de uma fonte via API: GET /api/tiles/{sourceId}
 export interface TileJson {
   tilejson: string;
@@ -18,21 +13,12 @@ export interface TileJson {
   }>;
 }
 
-// Metadados vindos do FastAPI: GET /api/catalog/resources
-export interface ResourceMetadata {
-  id: string; // schema.table
-  schema_name: string;
-  table_name: string;
-  geometry_column: string | null;
-  geometry_type: string | null;
-  srid: number | null;
-  feature_count: number | null;
-}
-
-export interface ResourceColumn {
-  name: string;
-  data_type: string;
-  nullable: boolean;
+// Recurso no catalogo: linha da tabela resource_configs.
+// GET /api/catalog/resources
+export interface CatalogResource {
+  id: string;          // workspace.layer
+  layerLabel: string;
+  thumbnail?: string | null;
 }
 
 export interface ResourceFieldConfig {
@@ -63,10 +49,7 @@ export interface ResourceConfig {
   excludedFeatures: ExcludedFeature[];
 }
 
-// Perfil de configuracao nomeado (catalogo "Configuracoes"): subconjunto
-// alternativo de campos/seguranca/zoom de um recurso, reutilizavel por
-// qualquer no de camada de um group-layer. Sem perfil = default (todos os
-// campos visiveis em tabela/popup, sem restricao, sem limite de zoom).
+// Perfil de configuracao nomeado (reutilizavel por group-layers).
 export interface ResourceConfigProfileSummary {
   id: number;
   resourceId: string;
@@ -90,20 +73,48 @@ export interface ResourceConfigProfileInput {
   maxZoom: number | null;
 }
 
-// GET /catalog/resources/overrides: so os recursos com override configurado.
+// GET /catalog/resources/overrides: recursos com override configurado.
 export type ResourceOverrides = Record<
   string,
   { bboxOverride: [number, number, number, number] | null; excludedFeatures: ExcludedFeature[] }
 >;
 
-// Regra de filtro avancado (painel "Buscar"), enviada ao backend como JSON
-// no parametro `filters` de /attributes.
+// Regra de filtro avancado (painel "Buscar").
 export interface SearchFilterRule {
   column: string;
   operator: string;
   value?: string;
   value2?: string;
   values?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Stubs mantidos para compatibilidade enquanto paineis do mapa sao refatorados.
+// ---------------------------------------------------------------------------
+
+/** @deprecated PostGIS foi removido; colunas vem do WFS DescribeFeatureType. */
+export interface ResourceColumn {
+  name: string;
+  data_type: string;
+  nullable: boolean;
+}
+
+/** @deprecated Busca por palavra-chave PostGIS foi removida. */
+export interface KeywordSearchResult {
+  resourceId: string;
+  layerLabel: string;
+  row: Record<string, unknown>;
+  matches: Record<string, unknown>;
+  bbox: [number, number, number, number] | null;
+}
+
+/** @deprecated */
+export interface KeywordSearchResponse {
+  q: string;
+  limit: number;
+  offset: number;
+  total: number;
+  results: KeywordSearchResult[];
 }
 
 export interface ResourceAttributes {
@@ -113,31 +124,4 @@ export interface ResourceAttributes {
   total: number;
   rows: Array<Record<string, unknown> & { __bbox?: [number, number, number, number] | null }>;
   columns: string[];
-}
-
-// GET /catalog/resources/keyword-search: busca por palavra-chave em todas as
-// colunas de texto de cada tabela (painel "Palavra-chave" do menu principal).
-export interface KeywordSearchResult {
-  resourceId: string;
-  layerLabel: string;
-  row: Record<string, unknown>;
-  matches: Record<string, unknown>;
-  bbox: [number, number, number, number] | null;
-}
-
-export interface KeywordSearchResponse {
-  q: string;
-  limit: number;
-  offset: number;
-  total: number;
-  results: KeywordSearchResult[];
-}
-
-// Item da galeria: casamento do catalogo Martin com os metadados do banco.
-export interface CatalogResource {
-  id: string; // schema.table (source id do Martin)
-  schemaName: string;
-  tableName: string;
-  geometryColumn: string; // derivado da description "schema.table.geom"
-  title: string; // table.geom
 }

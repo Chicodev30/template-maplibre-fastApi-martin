@@ -39,8 +39,8 @@ export function ResourceCard({
       </Card.Section>
 
       <Stack gap={6} mt="sm">
-        <Text fw={600} size="sm" truncate title={resource.title}>
-          {resource.title}
+        <Text fw={600} size="sm" truncate title={resource.layerLabel}>
+          {resource.layerLabel}
         </Text>
         <Text size="xs" c="dimmed" truncate title={resource.id}>
           {resource.id}

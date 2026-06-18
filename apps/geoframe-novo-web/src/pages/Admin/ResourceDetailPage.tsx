@@ -37,8 +37,8 @@ import {
 import {
   useCatalogResources,
   useResourceAttributes,
-  useResourceColumns,
   useResourceConfig,
+  useResourceFields,
   useResourceMetadata,
   useSaveResourceConfig,
   useSaveThumbnail,
@@ -76,10 +76,12 @@ type FilterOperator =
   | 'is_null'
   | 'is_not_null';
 
+import { KC_ROLE_ADMIN, KC_ROLE_CONTRIBUIDOR, KC_ROLE_VISUALIZADOR } from '../../app/constants';
+
 const ROLE_OPTIONS: TransferOption[] = [
-  { value: 'role:gfr-admin', label: 'Administrador', description: 'Papel gfr-admin' },
-  { value: 'role:gfr-contribuidor', label: 'Contribuidor', description: 'Papel gfr-contribuidor' },
-  { value: 'role:gfr-visualizador', label: 'Visualizador', description: 'Papel gfr-visualizador' },
+  { value: `role:${KC_ROLE_ADMIN}`, label: 'Administrador', description: `Papel ${KC_ROLE_ADMIN}` },
+  { value: `role:${KC_ROLE_CONTRIBUIDOR}`, label: 'Contribuidor', description: `Papel ${KC_ROLE_CONTRIBUIDOR}` },
+  { value: `role:${KC_ROLE_VISUALIZADOR}`, label: 'Visualizador', description: `Papel ${KC_ROLE_VISUALIZADOR}` },
 ];
 
 const BASE_FILTER_OPERATORS: Array<{ value: FilterOperator; label: string }> = [
@@ -174,7 +176,7 @@ function buildConfig(
   );
   return {
     resourceId: resource.id,
-    layerLabel: previous?.layerLabel ?? resource.title,
+    layerLabel: previous?.layerLabel ?? resource.layerLabel,
     fields,
     securityRules: previous?.securityRules ?? [],
     bboxOverride: previous?.bboxOverride ?? null,
@@ -567,8 +569,8 @@ export function ResourceDetailPage() {
     () => catalog.data?.find((r) => r.id === resourceId) ?? null,
     [catalog.data, resourceId],
   );
-  const meta = resource ? metadata.data?.[resource.id] : undefined;
-  const columns = useResourceColumns(resource?.tableName ?? null);
+  const meta = undefined; // PostGIS removido
+  const columns = useResourceFields(resource?.id ?? null);
   const savedConfig = useResourceConfig(resource?.id ?? null);
   const saveConfig = useSaveResourceConfig(resource?.id ?? '');
   const saveThumbnail = useSaveThumbnail(resource?.id ?? '');
@@ -854,17 +856,13 @@ export function ResourceDetailPage() {
 
       <Group justify="space-between" align="flex-end">
         <div>
-          <Title order={3}>{config?.layerLabel || resource.title}</Title>
+          <Title order={3}>{config?.layerLabel || resource.layerLabel}</Title>
           <Text c="dimmed" size="sm">
             {resource.id}
           </Text>
         </div>
         <Group gap="xs">
-          <Badge variant="light">{meta?.geometry_type ?? 'geometria'}</Badge>
-          {meta?.srid != null && <Badge variant="light">SRID {meta.srid}</Badge>}
-          <Badge variant="light" color="gray">
-            ~{formatNumber(meta?.feature_count)} feicoes
-          </Badge>
+          <Badge variant="light" color="blue">GeoServer</Badge>
         </Group>
       </Group>
 
@@ -923,20 +921,9 @@ export function ResourceDetailPage() {
                 )
               }
             />
-            <SimpleGrid cols={2} spacing="sm">
-              <Text size="sm">
-                <Text span fw={600}>Schema:</Text> {resource.schemaName}
-              </Text>
-              <Text size="sm">
-                <Text span fw={600}>Tabela:</Text> {resource.tableName}
-              </Text>
-              <Text size="sm">
-                <Text span fw={600}>Geometria:</Text> {resource.geometryColumn}
-              </Text>
-              <Text size="sm">
-                <Text span fw={600}>Feicoes:</Text> {formatNumber(meta?.feature_count)}
-              </Text>
-            </SimpleGrid>
+            <Text size="sm">
+              <Text span fw={600}>Fonte:</Text> {resource.id}
+            </Text>
             <Group justify="space-between">
               <Text size="sm" c="dimmed">
                 Esta configuracao define como o app vai consumir a camada no mapa,
@@ -1066,7 +1053,7 @@ export function ResourceDetailPage() {
           <Group gap="sm">
             <Text fw={600}>Tabela de atributos</Text>
             <Text size="sm" c="dimmed">
-              dados consultados diretamente do PostgreSQL via API
+              dados consultados via WFS (GeoServer) pela API
             </Text>
           </Group>
           <Button size="xs" variant="subtle">

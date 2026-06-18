@@ -92,7 +92,7 @@ export function GroupLayerBuilderPage() {
     const list = catalog.data ?? [];
     const q = search.trim().toLowerCase();
     return q
-      ? list.filter((r) => r.title.toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
+      ? list.filter((r) => r.layerLabel.toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
       : list;
   }, [catalog.data, search]);
 
@@ -298,12 +298,12 @@ export function GroupLayerBuilderPage() {
                       style={{ borderRadius: 6, cursor: 'grab', border: '1px solid var(--mantine-color-gray-2)' }}
                     >
                       <Text size="sm" style={{ flex: 1 }} lineClamp={1} title={resource.id}>
-                        {resource.title}
+                        {resource.layerLabel}
                       </Text>
                       <ActionIcon
                         variant="subtle"
                         size="sm"
-                        aria-label={`Adicionar ${resource.title}`}
+                        aria-label={`Adicionar ${resource.layerLabel}`}
                         onClick={() => addLayer(resource)}
                       >
                         +

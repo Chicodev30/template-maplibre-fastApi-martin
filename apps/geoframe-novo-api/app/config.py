@@ -19,15 +19,7 @@ class Settings(BaseSettings):
     db_password: str = ""
     db_host: str = "lpostdes14.procempa.com.br"
     db_port: int = 6000
-    # Schema com as tabelas de recursos espaciais (catalogo da API + auto_publish do Martin).
-    db_schema_resources: str = "smftest"
-    # Schema dedicado para os metadados do app (usuarios, config de recurso,
-    # permissoes), isolado do schema de recursos espaciais (db_schema_resources).
-    db_schema_app: str = "gfr_app"
-
-    kc_role_visualizador: str = "gfr-visualizador"
-    kc_role_admin: str = "gfr-admin"
-    kc_role_contribuidor: str = "gfr-contribuidor"
+    db_schema: str = "gfr_app"
 
     # Bypass de dev so deve ligar quando AUTH_DEV_BYPASS=true.
     auth_dev_bypass: bool = False
@@ -38,8 +30,7 @@ class Settings(BaseSettings):
     api_key_secret: str = Field(default="", repr=False)
 
     # GeoServer GWC visto pela API (substitui o Martin para o teste de performance).
-    geoserver_base_url: str = "http://localhost:8083/geoserver"
-    geoserver_workspace: str = "teste"
+    geoserver_base_url: str = "http://host.docker.internal:8083/geoserver"
     geoserver_user: str = "admin"
     geoserver_password: str = Field(default="geoserver", repr=False)
     geoserver_gridset: str = "EPSG:900913"

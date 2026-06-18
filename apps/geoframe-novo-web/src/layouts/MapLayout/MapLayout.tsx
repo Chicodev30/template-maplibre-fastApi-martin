@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import { AppShell, Burger, Group, Image, Paper, Stack, Text } from '@mantine/core';
-import { env } from '../../app/env';
+import { APP_TITLE, APP_SUBTITLE } from '../../app/constants';
 import { useAuth } from '../../auth/useAuth';
 import { MapView } from '../../map/MapView';
 import { useActiveLayers } from '../../map/groupLayers/useActiveLayers';
@@ -101,10 +101,10 @@ export function MapLayout() {
             <Image src="/logos/logo_app.png" alt="" h={32} w="auto" fit="contain" />
             <Stack gap={0} style={{ minWidth: 0 }}>
               <Text fw={700} size="sm" c="blue.7" lineClamp={1}>
-                {env.appTitle}
+                {APP_TITLE}
               </Text>
               <Text size="xs" c="dimmed" lineClamp={1} visibleFrom="sm">
-                {env.appSubtitle}
+                {APP_SUBTITLE}
               </Text>
             </Stack>
           </Group>

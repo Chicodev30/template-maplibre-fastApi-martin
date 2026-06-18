@@ -2,7 +2,7 @@
 import { AppShell, Group, Title, Anchor, Burger, Badge, Text, Button } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { Link, Outlet } from 'react-router-dom';
-import { env } from '../../app/env';
+import { APP_TITLE } from '../../app/constants';
 import { useAuth } from '../../auth/useAuth';
 import { ROLE_LABEL } from '../../auth/auth.types';
 import { AdminSidebar } from './AdminSidebar';
@@ -21,7 +21,7 @@ export function AdminLayout() {
         <Group h="100%" px="md" justify="space-between">
           <Group gap="xs">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <Title order={4}>{env.appTitle}</Title>
+            <Title order={4}>{APP_TITLE}</Title>
             <Title order={5} c="dimmed" fw={400}>
               Admin
             </Title>

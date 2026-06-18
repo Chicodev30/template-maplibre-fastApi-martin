@@ -1,12 +1,13 @@
 # Serviço integração GeoServer GWC/tilejson.
 # A API e o unico gateway: o navegador nunca fala direto com o GeoServer.
-# Substitui o Martin (teste de performance): mesmo source id "workspace.layer".
+import math as _math
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
 from app.config import get_settings
+from app.core.constants import TILE_DEFAULT_GRIDSET
 
 settings = get_settings()
 
@@ -28,36 +29,39 @@ def _split_source_id(source_id: str) -> tuple[str, str]:
 def _rebase_url(url: str) -> str:
     """Reescreve scheme/host de uma URL absoluta do GeoServer para o GEOSERVER_BASE_URL.
 
-    O GeoServer pode devolver hrefs absolutos (ex.: resource.href) baseados no seu proxy
-    base URL configurado (ex.: localhost:8083), que nao e alcancavel de dentro do
-    container (somente host.docker.internal:8083 e).
+    O GeoServer pode devolver hrefs absolutos baseados no seu proxy base URL configurado
+    (ex.: localhost:8083), que nao e alcancavel de dentro do container
+    (somente host.docker.internal:8083 e).
     """
     base_parts = urlsplit(settings.geoserver_base_url)
     url_parts = urlsplit(url)
     return urlunsplit((base_parts.scheme, base_parts.netloc, url_parts.path, url_parts.query, url_parts.fragment))
 
 
-async def get_catalog() -> dict[str, Any]:
-    workspace = settings.geoserver_workspace
+async def list_workspaces() -> list[str]:
+    """Lista os workspaces visiveis pelo usuario configurado no .env."""
+    async with httpx.AsyncClient(timeout=15.0, auth=_auth()) as client:
+        resp = await client.get(_rest_url("workspaces.json"))
+        resp.raise_for_status()
+        data = resp.json()
+    workspaces = data.get("workspaces") or {}
+    entries = workspaces.get("workspace") or []
+    if isinstance(entries, dict):
+        entries = [entries]
+    return [w["name"] for w in entries if w.get("name")]
+
+
+async def list_layers(workspace: str) -> list[str]:
+    """Lista as camadas de um workspace."""
     async with httpx.AsyncClient(timeout=15.0, auth=_auth()) as client:
         resp = await client.get(_rest_url(f"workspaces/{workspace}/layers.json"))
         resp.raise_for_status()
         data = resp.json()
-
     layers = data.get("layers") or {}
-    layer_entries = layers.get("layer") or []
-    if isinstance(layer_entries, dict):
-        layer_entries = [layer_entries]
-
-    tiles = {}
-    for entry in layer_entries:
-        name = entry["name"]
-        source_id = f"{workspace}.{name}"
-        tiles[source_id] = {
-            "content_type": "application/x-protobuf",
-            "description": f"{workspace}.{name}",
-        }
-    return {"tiles": tiles}
+    entries = layers.get("layer") or []
+    if isinstance(entries, dict):
+        entries = [entries]
+    return [l["name"] for l in entries if l.get("name")]
 
 
 async def get_tilejson(source_id: str, public_tile_base: str) -> dict[str, Any]:
@@ -80,7 +84,6 @@ async def get_tilejson(source_id: str, public_tile_base: str) -> dict[str, Any]:
                     if bbox:
                         bounds = [bbox["minx"], bbox["miny"], bbox["maxx"], bbox["maxy"]]
             except httpx.HTTPError:
-                # bounds sao opcionais no tilejson; nao falha a resposta toda por isso.
                 pass
 
     tilejson: dict[str, Any] = {
@@ -93,9 +96,6 @@ async def get_tilejson(source_id: str, public_tile_base: str) -> dict[str, Any]:
     if bounds:
         tilejson["bounds"] = bounds
     return tilejson
-
-
-import math as _math
 
 
 def _merc_to_wgs84(x: float, y: float) -> tuple[float, float]:
@@ -179,12 +179,48 @@ async def get_attributes(
     return {"total": int(total), "rows": rows, "columns": columns}
 
 
+_GEOMETRY_TYPES = {
+    "geometry", "point", "linestring", "polygon", "multipoint",
+    "multilinestring", "multipolygon", "geometrycollection",
+}
+
+
+async def get_fields(source_id: str) -> list[dict]:
+    """Campos da camada via WFS DescribeFeatureType (application/json)."""
+    workspace, layer = _split_source_id(source_id)
+    base = settings.geoserver_base_url.rstrip("/")
+    params = {
+        "service": "WFS",
+        "version": "2.0.0",
+        "request": "DescribeFeatureType",
+        "typeName": f"{workspace}:{layer}",
+        "outputFormat": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=15.0, auth=_auth()) as client:
+        resp = await client.get(f"{base}/ows", params=params)
+        resp.raise_for_status()
+        data = resp.json()
+
+    feature_types = data.get("featureTypes") or []
+    if not feature_types:
+        return []
+    props = feature_types[0].get("properties") or []
+    return [
+        {
+            "name": p["name"],
+            "data_type": p.get("localType", "string"),
+            "nullable": True,
+        }
+        for p in props
+        if p.get("name") and p.get("localType", "").lower() not in _GEOMETRY_TYPES
+    ]
+
+
 async def get_tile(source_id: str, z: int, x: int, y: int) -> httpx.Response:
     workspace, layer = _split_source_id(source_id)
     # GWC TMS usa origem inferior-esquerda (y invertido em relacao ao XYZ do MapLibre/deck.gl).
     y_tms = (2**z) - 1 - y
-    gridset = settings.geoserver_gridset
     base = settings.geoserver_base_url.rstrip("/")
-    url = f"{base}/gwc/service/tms/1.0.0/{workspace}:{layer}@{gridset}@pbf/{z}/{x}/{y_tms}.pbf"
+    url = f"{base}/gwc/service/tms/1.0.0/{workspace}:{layer}@{TILE_DEFAULT_GRIDSET}@pbf/{z}/{x}/{y_tms}.pbf"
     async with httpx.AsyncClient(timeout=30.0, auth=_auth()) as client:
         return await client.get(url)

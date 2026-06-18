@@ -56,7 +56,7 @@ export function StyleBuilderPage() {
 
   const columns = useResourceColumns(resourceId ? tableNameOf(resourceId) : null);
 
-  const resourceOptions = (catalog.data ?? []).map((r) => ({ value: r.id, label: r.title }));
+  const resourceOptions = (catalog.data ?? []).map((r) => ({ value: r.id, label: r.layerLabel }));
 
   function save() {
     if (!resourceId) return;

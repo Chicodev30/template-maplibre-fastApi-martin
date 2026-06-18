@@ -1,22 +1,23 @@
 // Papéis (roles) do portal.
 import { Badge, Card, Group, Stack, Text, Title } from '@mantine/core';
+import { KC_ROLE_ADMIN, KC_ROLE_CONTRIBUIDOR, KC_ROLE_VISUALIZADOR } from '../../app/constants';
 
 const ROLES = [
   {
     label: 'Administrador',
-    kc: 'gfr-admin',
+    kc: KC_ROLE_ADMIN,
     color: 'red',
     desc: 'Acesso total ao portal por padrão. Gerencia recursos, permissões e usuários.',
   },
   {
     label: 'Contribuidor',
-    kc: 'gfr-contribuidor',
+    kc: KC_ROLE_CONTRIBUIDOR,
     color: 'blue',
     desc: 'Edição de dados nos recursos permitidos. (Detalhes a definir.)',
   },
   {
     label: 'Visualizador',
-    kc: 'gfr-visualizador',
+    kc: KC_ROLE_VISUALIZADOR,
     color: 'gray',
     desc: 'Apenas visualização dos recursos permitidos. (Detalhes a definir.)',
   },

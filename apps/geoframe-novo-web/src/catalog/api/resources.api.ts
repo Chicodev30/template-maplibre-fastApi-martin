@@ -1,60 +1,20 @@
 // API de resources.
-// Tudo passa pela API FastAPI (gateway do Martin); o front nunca fala direto
-// com o Martin.
+// Recursos sao camadas GeoServer adicionadas manualmente pelo admin.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiGet, apiPost, apiPostForm, apiPut } from '../../app/http';
+import { apiDelete, apiGet, apiPost, apiPut } from '../../app/http';
 import type {
   CatalogResource,
-  KeywordSearchResponse,
   ResourceAttributes,
   ResourceConfig,
   ResourceOverrides,
-  MartinCatalog,
-  ResourceColumn,
-  ResourceMetadata,
-  SearchFilterRule,
   TileJson,
 } from '../types/resource.types';
 
-// Deriva o item da galeria a partir do source id e da description.
-// id: "schema.table" | description: "schema.table[.geom_column]"
-// Quando description nao tem terceira parte (fontes GeoServer), title = tableName.
-function toResource(id: string, description: string): CatalogResource {
-  const [schemaName, ...rest] = id.split('.');
-  const tableName = rest.join('.') || id;
-  const descParts = description.split('.');
-  const geometryColumn = descParts.slice(2).join('.') || 'geom';
-  const hasExplicitGeom = descParts.length > 2;
-  return {
-    id,
-    schemaName,
-    tableName,
-    geometryColumn,
-    title: hasExplicitGeom ? `${tableName}.${geometryColumn}` : tableName,
-  };
-}
-
-// Catalogo MVT (via API -> Martin).
+// Lista de recursos cadastrados (DB).
 export function useCatalogResources() {
   return useQuery({
     queryKey: ['catalog'],
-    queryFn: async (): Promise<CatalogResource[]> => {
-      const catalog = await apiGet<MartinCatalog>('/tiles/catalog');
-      return Object.entries(catalog.tiles)
-        .map(([id, info]) => toResource(id, info.description))
-        .sort((a, b) => a.title.localeCompare(b.title));
-    },
-  });
-}
-
-// Metadados do banco (FastAPI), indexados por source id schema.table.
-export function useResourceMetadata() {
-  return useQuery({
-    queryKey: ['resources', 'metadata'],
-    queryFn: async (): Promise<Record<string, ResourceMetadata>> => {
-      const list = await apiGet<ResourceMetadata[]>('/catalog/resources');
-      return Object.fromEntries(list.map((m) => [m.id, m]));
-    },
+    queryFn: () => apiGet<CatalogResource[]>('/catalog/resources'),
   });
 }
 
@@ -68,41 +28,7 @@ export function useTileJson(sourceId: string) {
   });
 }
 
-// Colunas autoritativas do banco (nome, tipo, nullable) para a configuracao.
-export function useResourceColumns(tableName: string | null) {
-  return useQuery({
-    queryKey: ['resources', 'columns', tableName],
-    enabled: !!tableName,
-    queryFn: () => apiGet<ResourceColumn[]>(`/catalog/resources/${tableName}/columns`),
-  });
-}
-
-// Valores distintos de um campo (autocomplete do painel "Buscar").
-export function useResourceFieldValues(
-  sourceId: string | null,
-  column: string | null,
-  query: string,
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: ['resources', 'values', sourceId, column, query],
-    enabled: !!sourceId && !!column && enabled,
-    staleTime: 30 * 1000,
-    queryFn: () => {
-      const params = new URLSearchParams({ column: column ?? '', limit: '20' });
-      if (query.trim()) {
-        params.set('q', query.trim());
-      }
-      return apiGet<string[]>(
-        `/catalog/resources/${encodeURIComponent(sourceId ?? '')}/values?${params.toString()}`,
-      );
-    },
-    placeholderData: (previous) => previous,
-  });
-}
-
-// Overrides de catalogo (bbox manual + feicoes excluidas) so para os recursos
-// que tem algo configurado - usado na galeria e no mapa.
+// Overrides de catalogo (bbox manual + feicoes excluidas).
 export function useResourceOverrides() {
   return useQuery({
     queryKey: ['resources', 'overrides'],
@@ -145,8 +71,9 @@ export function useResourceAttributes(
   filterValue: string,
   sortColumn: string | null,
   sortDirection: 'asc' | 'desc',
-  extraFilters?: SearchFilterRule[] | null,
-  bbox?: [number, number, number, number] | null,
+  // extraFilters e bbox eram PostGIS; ignorados agora (WFS usa CQL simples)
+  _extraFilters?: unknown,
+  _bbox?: unknown,
 ) {
   return useQuery({
     queryKey: [
@@ -160,8 +87,6 @@ export function useResourceAttributes(
       filterValue,
       sortColumn,
       sortDirection,
-      extraFilters ?? null,
-      bbox ?? null,
     ],
     enabled: !!sourceId && opened,
     queryFn: () => {
@@ -172,7 +97,6 @@ export function useResourceAttributes(
       });
       if (filterColumn) {
         params.set('filter_column', filterColumn);
-        params.set('filter_operator', filterOperator);
         if (filterValue.trim()) {
           params.set('filter_value', filterValue.trim());
         }
@@ -180,38 +104,9 @@ export function useResourceAttributes(
       if (sortColumn) {
         params.set('sort_column', sortColumn);
       }
-      if (extraFilters && extraFilters.length > 0) {
-        params.set('filters', JSON.stringify(extraFilters));
-      }
-      if (bbox) {
-        params.set('bbox', bbox.join(','));
-      }
       return apiGet<ResourceAttributes>(
         `/catalog/resources/${encodeURIComponent(sourceId ?? '')}/attributes?${params.toString()}`,
       );
-    },
-    placeholderData: (previous) => previous,
-  });
-}
-
-// Busca por palavra-chave (painel "Palavra-chave" do menu principal): procura
-// o termo em todas as colunas de texto de cada tabela.
-export function useKeywordSearch(
-  q: string,
-  resourceIds: string[] | null,
-  limit: number,
-  offset: number,
-  enabled: boolean,
-) {
-  return useQuery({
-    queryKey: ['resources', 'keyword-search', q, resourceIds, limit, offset],
-    enabled: enabled && q.trim().length >= 3,
-    queryFn: () => {
-      const params = new URLSearchParams({ q: q.trim(), limit: String(limit), offset: String(offset) });
-      if (resourceIds && resourceIds.length > 0) {
-        params.set('resource_ids', resourceIds.join(','));
-      }
-      return apiGet<KeywordSearchResponse>(`/catalog/resources/keyword-search?${params.toString()}`);
     },
     placeholderData: (previous) => previous,
   });
@@ -228,16 +123,115 @@ export function thumbnailUrl(sourceId: string): string {
   return `/api/catalog/resources/${encodeURIComponent(sourceId)}/thumbnail`;
 }
 
-// Upload de arquivo vetorial -> nova tabela no schema de recursos (Martin
-// auto-publica a camada nova em seguida).
-export function useUploadResource() {
+// Campos da camada via WFS DescribeFeatureType.
+export function useResourceFields(sourceId: string | null) {
+  return useQuery({
+    queryKey: ['resources', 'fields', sourceId],
+    enabled: !!sourceId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () =>
+      apiGet<import('../types/resource.types').ResourceColumn[]>(
+        `/catalog/resources/${encodeURIComponent(sourceId ?? '')}/fields`,
+      ),
+  });
+}
+
+// GeoServer discovery: workspaces e layers disponiveis.
+export function useGeoServerWorkspaces() {
+  return useQuery({
+    queryKey: ['geoserver', 'workspaces'],
+    queryFn: () => apiGet<string[]>('/catalog/geoserver/workspaces'),
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useGeoServerLayers(workspace: string | null) {
+  return useQuery({
+    queryKey: ['geoserver', 'layers', workspace],
+    enabled: !!workspace,
+    queryFn: () => apiGet<string[]>(`/catalog/geoserver/workspaces/${workspace}/layers`),
+    staleTime: 60 * 1000,
+  });
+}
+
+// Adicionar recurso manualmente.
+export function useAddResource() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (formData: FormData) =>
-      apiPostForm<ResourceMetadata>('/catalog/resources/upload', formData),
+    mutationFn: (payload: { source_id: string; layer_label: string }) =>
+      apiPost<CatalogResource>('/catalog/resources', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['catalog'] });
-      queryClient.invalidateQueries({ queryKey: ['resources', 'metadata'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stubs mantidos para compatibilidade de paineis do mapa ainda nao refatorados.
+// ---------------------------------------------------------------------------
+
+/** @deprecated PostGIS removido — retorna vazio. */
+export function useResourceColumns(_tableName: string | null) {
+  return useQuery({
+    queryKey: ['resources', 'columns', _tableName],
+    enabled: false,
+    queryFn: async () => [] as import('../types/resource.types').ResourceColumn[],
+  });
+}
+
+/** @deprecated PostGIS removido — retorna objeto vazio. */
+export function useResourceMetadata() {
+  return useQuery({
+    queryKey: ['resources', 'metadata'],
+    enabled: false,
+    queryFn: async () => ({} as Record<string, never>),
+  });
+}
+
+/** @deprecated Busca PostGIS removida — retorna vazio. */
+export function useKeywordSearch(
+  _q: string,
+  _resourceIds: string[] | null,
+  _limit: number,
+  _offset: number,
+  _enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['resources', 'keyword-search', _q],
+    enabled: false,
+    queryFn: async () =>
+      ({
+        q: _q,
+        limit: _limit,
+        offset: _offset,
+        total: 0,
+        results: [],
+      } as import('../types/resource.types').KeywordSearchResponse),
+  });
+}
+
+/** @deprecated PostGIS removido — retorna vazio. */
+export function useResourceFieldValues(
+  _sourceId: string | null,
+  _column: string | null,
+  _query: string,
+  _enabled = true,
+) {
+  return useQuery({
+    queryKey: ['resources', 'values', _sourceId, _column, _query],
+    enabled: false,
+    queryFn: async () => [] as string[],
+  });
+}
+
+// Remover recurso.
+export function useDeleteResource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sourceId: string) =>
+      apiDelete(`/catalog/resources/${encodeURIComponent(sourceId)}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog'] });
     },
   });
 }

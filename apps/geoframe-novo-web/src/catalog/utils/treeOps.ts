@@ -16,7 +16,7 @@ export function newLayer(resource: CatalogResource): LayerNode {
   return {
     id: crypto.randomUUID(),
     kind: 'layer',
-    label: resource.title,
+    label: resource.layerLabel,
     visible: true,
     resourceId: resource.id,
     minZoom: null,

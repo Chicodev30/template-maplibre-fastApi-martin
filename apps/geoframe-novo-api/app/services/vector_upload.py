@@ -155,7 +155,7 @@ async def ingest_vector_file(
     csv_y_column: str | None,
     csv_srid: int | None,
 ) -> str:
-    schema = settings.db_schema_resources
+    schema = settings.db_schema
     fmt = detect_format(file.filename or "")
 
     final_table = sanitize_table_name(table_name or file.filename or "camada")
